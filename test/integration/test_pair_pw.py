@@ -45,7 +45,8 @@ class TestCylinder2(unittest.TestCase):
 
     def test_fourier(self):
         from khepri.fourier import transform
-        data = loadmat(f"{fixtures}/fourier.mat")
+        # Unwrap MATLAB's 1x1 complex cell values explicitly for NumPy 2.
+        data = loadmat(f"{fixtures}/fourier.mat", squeeze_me=True)
         val = np.asarray(data['Omega_g'], dtype=complex)
         
         lattice = CartesianLattice(pw, a1=(a, 0.0), a2=(0.0, a), eps_emerg=1.0, eps_incid=1.0, dtype=np.float64)

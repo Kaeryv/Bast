@@ -35,7 +35,10 @@ class TestCylinder(unittest.TestCase):
 
     def test_fourier(self):
         from khepri.fourier import transform
-        data = loadmat(f"{fixtures}/fourier.mat")
+        # MATLAB stores these scalar complex coefficients inside a cell array.
+        # squeeze_me unwraps the 1x1 cells before NumPy performs the cast;
+        # NumPy 2 no longer implicitly converts nested arrays to scalars.
+        data = loadmat(f"{fixtures}/fourier.mat", squeeze_me=True)
         val = np.asarray(data['Omega_g'], dtype=complex)
         
         lattice = CartesianLattice(pw, a1=(a, 0.0), a2=(0.0, a), eps_emerg=1.0, eps_incid=1.0, dtype=np.float64)

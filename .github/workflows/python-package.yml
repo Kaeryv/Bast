@@ -3,6 +3,9 @@
 
 name: Python package
 
+env:
+  MPLBACKEND: Agg
+
 on:
   push:
     branches: [ "main" ]
