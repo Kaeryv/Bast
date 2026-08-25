@@ -60,6 +60,15 @@ def stack_layers(pw, layers, mask):
     return Sls, Srs, Stot
 
 
+def stack_total(pw, layers):
+    """Compose a stack while retaining only its rolling total S matrix."""
+
+    total = scattering_identity(pw, block=True)
+    for layer in layers:
+        total = redheffer_product(total, layer.S)
+    return total
+
+
 class Layer:
     def __init__(self) -> None:
         self.formulation = None

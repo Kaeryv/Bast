@@ -76,6 +76,14 @@ plt.show()
 
 ## Field maps
 
+`set_device(..., fields_mask=...)` controls internal-field retention. Its
+default is `False`, which keeps R/T/A unchanged while avoiding unused forward
+and reverse partial stacks. Set the corresponding device-layer entries to
+`True` before solving if fields will be sampled there. A later request in a
+disabled device layer emits `FieldsNotRetainedWarning` and returns the typed
+`FieldsNotRetained` value instead of allocating the missing stacks after the
+fact.
+
 ### Electro-magnetic field for the above structure
 
 ```python

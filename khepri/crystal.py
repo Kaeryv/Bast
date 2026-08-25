@@ -1,4 +1,6 @@
 import logging
+from dataclasses import dataclass
+import warnings
 
 
 from .tools import compute_kplanar
@@ -17,7 +19,7 @@ from .fields import (
 )
 from .fourier import idft
 from .fields import longitudinal_fields
-from .layer import stack_layers
+from .layer import stack_layers, stack_total
 
 from .extension import ExtendedLayer as EL
 
@@ -30,6 +32,19 @@ import numpy as np
 from numpy.linalg import solve
 
 from .misc import ensure_array
+
+
+class FieldsNotRetainedWarning(UserWarning):
+    """A field sample targeted a layer disabled by ``set_device``."""
+
+
+@dataclass(frozen=True)
+class FieldsNotRetained:
+    """Return value for a field request in a non-retained device layer."""
+
+    layer_name: str
+    layer_index: int
+    z: float
 
 class Crystal:
     """This class has the goal to provide a simple interface for
@@ -79,6 +94,8 @@ class Crystal:
         self.stacking_matrices = list()
         self.stack_positions = []
         self.S = None
+        self.internal_fields_requested = False
+        self.device_fields_mask = ()
 
     @classmethod
     def from_expansion(cls, expansion, **kwargs):
@@ -130,7 +147,11 @@ class Crystal:
 
     def set_device(self, layers_stack, fields_mask=False):
         """
-        Take the stacking from the user device and pre.a.ppend the incidence and emergence media.
+        Set the device stack and the layers whose internal fields are needed.
+
+        ``fields_mask`` is the source of truth for device-layer field intent.
+        When every entry is false, :meth:`solve` retains only the final
+        scattering matrix.  A scalar boolean applies to every device layer.
         """
         self.device_stack = copy(layers_stack)
         self.global_stacking = []
@@ -152,16 +173,45 @@ class Crystal:
             )
             self.layers["Strans"].fields = True
 
-        fields_mask = [fields_mask] * len(layers_stack) if isinstance(fields_mask, bool) else fields_mask
+        if isinstance(fields_mask, (bool, np.bool_)):
+            normalized_mask = (bool(fields_mask),) * len(layers_stack)
+        else:
+            normalized_mask = tuple(fields_mask)
+            if len(normalized_mask) != len(layers_stack):
+                raise ValueError(
+                    "fields_mask must contain one boolean per device layer"
+                )
+            if not all(
+                isinstance(value, (bool, np.bool_))
+                for value in normalized_mask
+            ):
+                raise TypeError("fields_mask values must be booleans")
+            normalized_mask = tuple(bool(value) for value in normalized_mask)
 
-        self.stack_retain_mask = [True]
-        self.stack_retain_mask.extend(fields_mask)
-        self.stack_retain_mask.append(True)
+        self.device_fields_mask = normalized_mask
+        self.internal_fields_requested = any(normalized_mask)
+        self.stack_retain_mask = list(normalized_mask)
+        if not self.void:
+            self.stack_retain_mask.insert(0, True)
+            self.stack_retain_mask.append(True)
 
-        for name, enabled in zip(self.global_stacking, self.stack_retain_mask):
-            self.layers[name].fields |= enabled
+        # Repeated stack entries share one Layer eigenspace. Retain it if any
+        # occurrence requests fields, while access remains occurrence-specific.
+        retained_by_name = {
+            name: name in ("Sref", "Strans")
+            or any(
+                enabled
+                for stacked_name, enabled in zip(
+                    self.global_stacking, self.stack_retain_mask
+                )
+                if stacked_name == name
+            )
+            for name in self.global_stacking
+        }
+        for name, enabled in retained_by_name.items():
+            self.layers[name].fields = enabled
             if hasattr(self.layers[name], "base"):
-                self.layers[name].base.fields |= enabled
+                self.layers[name].base.fields = enabled
 
     @property
     def depth(self):
@@ -200,9 +250,18 @@ class Crystal:
             self.stack_positions.insert(0, -np.inf)
 
         logging.debug('Building the layer stack')
-        self.stacking_matrices, self.stacking_reverse_matrices, self.Stot = (
-            stack_layers(self.expansion.pw, stacked_layers, self.stack_retain_mask)
-        )
+        if self.internal_fields_requested:
+            self.stacking_matrices, self.stacking_reverse_matrices, self.Stot = (
+                stack_layers(
+                    self.expansion.pw,
+                    stacked_layers,
+                    self.stack_retain_mask,
+                )
+            )
+        else:
+            self.Stot = stack_total(self.expansion.pw, stacked_layers)
+            self.stacking_matrices = []
+            self.stacking_reverse_matrices = []
         self.S = self.Stot
 
     def locate_layer(self, z):
@@ -230,6 +289,25 @@ class Crystal:
         )
         logging.debug(f"zr={zr}")
         return self.layers[layer_name], layer_index, zr
+
+    def _fields_not_retained(self, z, layer_index):
+        layer_name = self.global_stacking[layer_index]
+        result = FieldsNotRetained(layer_name, layer_index, float(z))
+        warnings.warn(
+            f"warning, asked fields in '{layer_name}' layer at z={z}, but "
+            "its set_device fields_mask entry is False; returning "
+            "FieldsNotRetained",
+            FieldsNotRetainedWarning,
+            stacklevel=3,
+        )
+        return result
+
+    def _field_occurrence_retained(self, layer_index):
+        # Exterior eigenspaces are already required for R/T. Their fields can
+        # be reconstructed directly from Stot without partial stack matrices.
+        if not self.void and layer_index in (0, len(self.global_stacking) - 1):
+            return True
+        return bool(self.stack_retain_mask[layer_index])
     
     def _fourier_fields(self, z, incident_fields):
         """Returns the fourier fields in the unit cell for a depth z.
@@ -242,7 +320,8 @@ class Crystal:
             _type_: fourier fields at depth z.
         """
         layer, layer_index, zr = self.locate_layer(z)
-        assert layer.fields, f"Layer at {z} did not store eigenspace."
+        if not self._field_occurrence_retained(layer_index):
+            return self._fields_not_retained(z, layer_index)
         LI, WI, VI = layer.L, layer.W, layer.V
         RI = layer_eigenbasis_matrix(WI, VI)
 
@@ -262,13 +341,18 @@ class Crystal:
         c1p = np.split(solve(Rref, incident_fields), 2)[0]
         c1m = self.Stot[0, 0] @ c1p
         c2p = self.Stot[1, 0] @ c1p
-        cdplus, cdminus = translate_mode_amplitudes(
-            self.stacking_matrices[layer_index],
-            self.stacking_reverse_matrices[layer_index],
-            c1p,
-            c1m,
-            c2p,
-        )
+        if not self.void and layer_index == 0:
+            cdplus, cdminus = c1p, c1m
+        elif not self.void and layer_index == len(self.global_stacking) - 1:
+            cdplus, cdminus = c2p, np.zeros_like(c2p)
+        else:
+            cdplus, cdminus = translate_mode_amplitudes(
+                self.stacking_matrices[layer_index],
+                self.stacking_reverse_matrices[layer_index],
+                c1p,
+                c1m,
+                c2p,
+            )
         d = layer.depth
         sx, sy, ux, uy = fourier_fields_from_mode_amplitudes(
             RI, LI, R0, (cdplus, cdminus), k0 * (d - zr)
@@ -304,7 +388,8 @@ class Crystal:
             incident_fields (_type_): _description_
 
         Returns:
-            tuple: contains the E and H fields.
+            tuple: The E and H fields, or :class:`FieldsNotRetained` when the
+                target device-layer field marker is false.
         """
         x = ensure_array(x)
         y = ensure_array(y)
@@ -323,6 +408,8 @@ class Crystal:
             ffields = self._fourier_far_fields(incident_fields)
         else:
             ffields = self._fourier_fields(z, incident_fields)
+            if isinstance(ffields, FieldsNotRetained):
+                return ffields
         k0 = 2 * np.pi / self.source.wavelength
         
         if return_fourier:
@@ -333,12 +420,19 @@ class Crystal:
         return np.split(np.asarray(fields), 2, axis=0)
 
     def fields_volume(self, x, y, z, incident_fields=None):
+        """Return volume fields or the first disabled-layer request value."""
+
+        z_values = tuple(z)
+        for zi in z_values:
+            _, layer_index, _ = self.locate_layer(zi)
+            if not self._field_occurrence_retained(layer_index):
+                return self._fields_not_retained(zi, layer_index)
         if incident_fields is None:
             incident_fields = self.get_source_as_field_vectors()
         
         fields = np.array([
             self.fields_coords_xy(x, y, zi, np.hstack(incident_fields))
-            for zi in z
+            for zi in z_values
         ])
         return fields[:, 0, ...], fields[:, 1, ...]
 
