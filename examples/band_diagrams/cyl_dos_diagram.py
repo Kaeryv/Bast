@@ -77,8 +77,8 @@ if args.graph:
     ax.set_yticks(np.linspace(0.0, wmax, 9, endpoint=True))
     ax.xaxis.tick_bottom()
     ax.set_xticks([0.0, 1.0, 1.5, 2.5])
-    ax.set_xticklabels(["$\Gamma$", "$X$", "M", "$\Gamma$"])
-    ax.set_ylabel("$\\frac{\omega a}{2\pi c}$", fontsize=12)
+    ax.set_xticklabels([r"$\Gamma$", "$X$", "M", r"$\Gamma$"])
+    ax.set_ylabel(r"$\frac{\omega a}{2\pi c}$", fontsize=12)
     
     _ = [ax.axvline(x) for x in [0.0, 1.0, 1.5, 2.5]]
     plt.subplots_adjust(wspace=0, hspace=0)

@@ -125,7 +125,7 @@ else:
     ax.text(0.5, 25, "$n_2$ = 2")
     ax.text(0.5, 24, "$\\theta$ = 25")
     ax.text(0.5, 23, "$\\Lambda=1$um")
-    ax.text(0.5, 22, "$\\lambda=1.1\Lambda$")
+    ax.text(0.5, 22, r"$\lambda=1.1\Lambda$")
     ax.text(0.5, 21, "$\\lambda_{dc}=0.5$")
     ax.text(0.5, 20, "$h=0.3$")
     ax.text(0.5, 19, "$\\vec p=\\vec y$")
