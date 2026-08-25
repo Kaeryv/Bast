@@ -1,5 +1,9 @@
 # Khepri: Kode for High-Efficiency Propagation of Radiant Interactions
 
+Scientific validation cases are reusable physical experiments shared by
+tests, examples, sequential/threaded runners, and machine-readable reports.
+See [the validation design](doc/scientific-validation.md).
+
 ![](khepri-light.png#gh-light-mode-onlyL)
 
 
