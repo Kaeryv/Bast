@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "khepri"
+version = "0.1.1"
+description = "UNamur Physics Department RCWA solver"
+readme = "README.md"
+requires-python = ">=3.8.1"
+license = "MIT"
+authors = [
+  { name = "Kaeryv", email = "nicolas.roy@unamur.be" },
+]
+keywords = ["RCWA", "electromagnetics", "Maxwell", "photonics"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  "matplotlib",
+  "numba",
+  "numpy",
+  "scipy",
+  "tqdm",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "flake8>=6",
+]
+
+[project.urls]
+Homepage = "https://github.com/Kaeryv/Khepri"
+Issues = "https://github.com/Kaeryv/Khepri/issues"
+Source = "https://github.com/Kaeryv/Khepri"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/khepri",
+  "/test",
+  "/README.md",
+  "/Makefile",
+  "/pyproject.toml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["khepri"]

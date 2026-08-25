@@ -5,6 +5,11 @@ __pycache__/
 .DS_Store
 *.whl
 build/
+dist/
+*.egg-info/
+*.tar.gz
+.venv/
+/uv.lock
 *.png
 *.csv
 #*.png

@@ -1,6 +1,7 @@
 """Memory-efficient scattering operators and an R/T-only network solver."""
 
 from dataclasses import dataclass
+from inspect import signature
 from time import perf_counter
 from typing import Sequence
 
@@ -8,6 +9,12 @@ import numpy as np
 from scipy.sparse import bmat, coo_matrix, csr_matrix, eye as sparse_eye
 from scipy.sparse.linalg import LinearOperator, gmres
 from scipy.sparse.linalg import spilu
+
+
+# SciPy renamed GMRES' relative tolerance from ``tol`` to ``rtol`` in 1.12.
+# Python 3.8 resolves SciPy 1.10, while current Python versions resolve the
+# newer API. Select the installed spelling once without weakening tolerances.
+_GMRES_RTOL_KEY = "rtol" if "rtol" in signature(gmres).parameters else "tol"
 
 
 class OperatorCapabilityError(RuntimeError):
@@ -380,12 +387,12 @@ def solve_network_rt(
         system,
         rhs,
         M=preconditioner,
-        rtol=rtol,
         atol=atol,
         restart=50,
         maxiter=maxiter,
         callback=residual_history.append,
         callback_type="pr_norm",
+        **{_GMRES_RTOL_KEY: rtol},
     )
     rhs_norm = np.linalg.norm(rhs)
     residual = np.linalg.norm(system @ solution - rhs) / max(rhs_norm, 1.0)

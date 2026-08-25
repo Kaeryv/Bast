@@ -86,7 +86,7 @@ if False:
     H = fields[1, :, :, :, 1]
     print(E.shape)
     PT = np.cross(E, np.conj(H/1j)) # 1j because of normalization
-    x, y, z = coords(0, bzi, bzi/2, bzi/2, 0.01, zmax, (3, 256, 256))
+    x, y, z = coords(0, bzx, bzy/2, bzy/2, 0.01, zmax, (3, 256, 256))
     PTnorm = np.sum(np.power(PT, 2), axis=-1).real
     fig, ax = plt.subplots(figsize=(8,6), dpi=250)
     vmax = np.max(np.abs(PTnorm.real))
@@ -125,7 +125,7 @@ else:
     ax.text(0.5, 25, "$n_2$ = 2")
     ax.text(0.5, 24, "$\\theta$ = 25")
     ax.text(0.5, 23, "$\\Lambda=1$um")
-    ax.text(0.5, 22, "$\\lambda=1.1\Lambda$")
+    ax.text(0.5, 22, r"$\lambda=1.1\Lambda$")
     ax.text(0.5, 21, "$\\lambda_{dc}=0.5$")
     ax.text(0.5, 20, "$h=0.3$")
     ax.text(0.5, 19, "$\\vec p=\\vec y$")

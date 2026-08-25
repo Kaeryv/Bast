@@ -38,7 +38,7 @@ def size(angle_deg):
 
 def moire_lattice(angle):
     AM = rot(angle/2)@ np.eye(2)
-    AM *= size(angle_deg)
+    AM *= size(np.rad2deg(angle))
     return AM
 
 twisted = twist_angle != 0

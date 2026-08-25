@@ -18,6 +18,21 @@ uv init <project_name>
 uv add 'khepri @ git+https://github.com/Kaeryv/Khepri'
 ```
 
+For a uv-managed virtual environment without creating a project dependency:
+
+```bash
+uv pip install 'khepri @ git+https://github.com/Kaeryv/Khepri'
+```
+
+Khepri uses standard PEP 517/621 metadata in `pyproject.toml`, so local and
+editable installs use the same build path:
+
+```bash
+python -m pip install .
+python -m pip install -e .
+uv pip install .
+```
+
 ![Discord](https://img.shields.io/discord/1228737702149623809?style=flat-square)
 [![Python package](https://github.com/Kaeryv/Bast/actions/workflows/python-package.yml/badge.svg)](https://github.com/Kaeryv/Bast/actions/workflows/python-package.yml)
 
@@ -114,5 +129,5 @@ E, H = cl.fields_volume(x, y, z)
 Some integration tests can be ran with
 
 ```bash
-python -m unittest discover tests
+python -m unittest discover test
 ```
