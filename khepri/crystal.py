@@ -155,26 +155,67 @@ class Crystal:
         the more generic `add_layer` with a Layer object instancianted using `Layer.uniform`.
         """
         self.layers[name] = Layer.uniform(self.expansion, epsilon, depth)
-    def add_pixmap_or_uniform(self, name, epsilon, depth):
+    def add_pixmap_or_uniform(
+        self,
+        name,
+        epsilon,
+        depth,
+        *,
+        factorization="classical",
+        normal_vectors=None,
+    ):
         """
         Add layer from 2D ndarray that provides eps(x,y).
         """
-        sample = epsilon.flatten()[0]
-        if np.all(epsilon == sample):
-            self.add_layer_uniform(name, sample, depth)
-        else:
-            self.add_layer_pixmap(name, epsilon, depth)
-    def add_layer_pixmap(self, name, epsilon, depth):
+        self.layers[name] = Layer.pixmap_or_uniform(
+            self.expansion,
+            epsilon,
+            depth,
+            factorization=factorization,
+            normal_vectors=normal_vectors,
+        )
+    def add_layer_pixmap(
+        self,
+        name,
+        epsilon,
+        depth,
+        *,
+        factorization="classical",
+        normal_vectors=None,
+    ):
         """
         Add a layer from 2D ndarray that provides eps(x,y). This method will use FFT.
         """
-        self.layers[name] = Layer.pixmap(self.expansion, epsilon, depth)
+        self.layers[name] = Layer.pixmap(
+            self.expansion,
+            epsilon,
+            depth,
+            factorization=factorization,
+            normal_vectors=normal_vectors,
+        )
 
-    def add_layer_analytical(self, name, epsilon, epsilon_host, depth):
+    def add_layer_analytical(
+        self,
+        name,
+        epsilon,
+        epsilon_host,
+        depth,
+        *,
+        factorization="classical",
+        normal_vectors=None,
+    ):
         """
-        Add a layer from 2D ndarray that provides eps(x,y). This method will use analytical formulas.
+        Add a layer from an islands description using analytical Fourier
+        transforms.
         """
-        self.layers[name] = Layer.analytical(self.expansion, epsilon, epsilon_host, depth)
+        self.layers[name] = Layer.analytical(
+            self.expansion,
+            epsilon,
+            epsilon_host,
+            depth,
+            factorization=factorization,
+            normal_vectors=normal_vectors,
+        )
 
     def add_layer(self, name, layer, extended=False):
         if extended:

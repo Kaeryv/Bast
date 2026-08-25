@@ -53,17 +53,26 @@ class ScientificCaseTests(unittest.TestCase):
         configurations = tuple(case.configurations())
         self.assertEqual([item.pw for item in configurations], [(5, 1), (9, 1)])
         self.assertAlmostEqual(case.literature_transmission, 0.7028)
+        self.assertAlmostEqual(
+            case.secondary_literature_transmission, 0.69828465
+        )
+        self.assertAlmostEqual(case.chrome_ridge_fraction, 0.30)
+        self.assertAlmostEqual(case.air_groove_fraction, 0.70)
         aggregate = case.collect(ThreadRunner(2).run(case).evaluations)
         self.assertGreaterEqual(aggregate.observables["minimum_A"], -2e-10)
 
-    @unittest.expectedFailure
     def test_lalanne_chrome_tm_transmission_reaches_published_value(self):
-        """Known gap: the main branch lacks the required TM factorization."""
-
         case = LalanneChromeGratingCase(pw_values=(41,))
         aggregate = case.collect(SequentialRunner().run(case).evaluations)
         reference = case.aggregate_reference(aggregate)
-        self.assertLess(case.aggregate_error(aggregate, reference), 0.03)
+        self.assertLess(case.aggregate_error(aggregate, reference), 0.015)
+        self.assertLess(
+            abs(
+                aggregate.observables["highest_pw_T0"]
+                - case.secondary_literature_transmission
+            ),
+            0.003,
+        )
 
     def test_thin_film_matches_airy_for_s_and_p_in_parallel(self):
         case = ThinFilmCase(

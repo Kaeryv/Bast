@@ -2,6 +2,7 @@ from enum import IntEnum
 from khepri.tools import convolution_matrix, convolution_matrix_fourier
 from khepri.fourier import transform, combine_fourier_masks
 from khepri.alternative import (
+    normal_vector_permittivity,
     solve_structured_layer,
     solve_uniform_layer,
     build_scatmat,
@@ -88,6 +89,8 @@ class Layer:
         self.operator_solved = False
 
         self.fields = False
+        self.factorization = "classical"
+        self.normal_vectors = None
 
     @property
     def S(self):
@@ -162,7 +165,15 @@ class Layer:
         return self.operator
     
     @classmethod
-    def pixmap_or_uniform(cls, expansion, pixmap, depth):
+    def pixmap_or_uniform(
+        cls,
+        expansion,
+        pixmap,
+        depth,
+        *,
+        factorization="classical",
+        normal_vectors=None,
+    ):
         """
             This method is a convenience when you don't know what is inside pixmap.
             If the structure is rigorously uniform, it will be redirected to uniform solver.
@@ -173,15 +184,30 @@ class Layer:
                 pixmap (array): A numpy picture of you 2D pattern. Can be uniform.
                 depth (float): The depth of the layer.
         """
+        cls._validate_factorization(factorization, normal_vectors)
         eps0 = pixmap.flatten()[0]
         if np.all(pixmap == eps0):
             return Layer.uniform(expansion, eps0, depth)
         else:
-            return Layer.pixmap(expansion, pixmap, depth)
+            return Layer.pixmap(
+                expansion,
+                pixmap,
+                depth,
+                factorization=factorization,
+                normal_vectors=normal_vectors,
+            )
 
 
     @classmethod
-    def pixmap(cls, expansion, pixmap, depth):
+    def pixmap(
+        cls,
+        expansion,
+        pixmap,
+        depth,
+        *,
+        factorization="classical",
+        normal_vectors=None,
+    ):
         """
             Constructing a layer this way will use the FFT algorithm to source the convolution matrix.
             The FFT will be applied on the real-space descritpion of the unit cell dielectric 'pixmap'.
@@ -190,11 +216,14 @@ class Layer:
                 pixmap (array): A numpy picture of you 2D pattern.
                 depth (float): The depth of the layer.
         """
+        cls._validate_factorization(factorization, normal_vectors)
         layer = cls()
         layer.expansion = expansion
         layer.formulation = Formulation.FFT
         layer.epsilon = pixmap
         layer.depth = depth
+        layer.factorization = factorization
+        layer.normal_vectors = normal_vectors
         return layer
 
     @classmethod
@@ -207,14 +236,138 @@ class Layer:
         return layer
 
     @classmethod
-    def analytical(cls, expansion, islands_description, eps_host, depth):
+    def analytical(
+        cls,
+        expansion,
+        islands_description,
+        eps_host,
+        depth,
+        *,
+        factorization="classical",
+        normal_vectors=None,
+    ):
+        cls._validate_factorization(factorization, normal_vectors)
         layer = cls()
         layer.expansion = expansion
         layer.formulation = Formulation.ANALYTICAL
         layer.epsilon = islands_description
         layer.eps_host = eps_host
         layer.depth = depth
+        layer.factorization = factorization
+        layer.normal_vectors = normal_vectors
         return layer
+
+    @staticmethod
+    def _validate_factorization(factorization, normal_vectors):
+        if factorization not in ("classical", "normal-vector"):
+            raise ValueError(
+                "factorization must be 'classical' or 'normal-vector'"
+            )
+        if factorization == "normal-vector" and normal_vectors is None:
+            raise ValueError(
+                "normal-vector factorization requires normal_vectors=(nx, ny)"
+            )
+        if factorization == "classical" and normal_vectors is not None:
+            raise ValueError(
+                "normal_vectors require factorization='normal-vector'"
+            )
+
+    def _normal_convolutions(self):
+        """Compile products of a constant or sampled periodic normal field."""
+        normals = np.asarray(self.normal_vectors)
+        if np.iscomplexobj(normals) or not np.all(np.isfinite(normals)):
+            raise ValueError("normal_vectors must be finite real values")
+        normals = normals.astype(float, copy=False)
+
+        if normals.shape == (2,):
+            magnitude = np.hypot(normals[0], normals[1])
+            if magnitude <= np.finfo(float).eps:
+                raise ValueError("normal_vectors must be non-zero")
+            nx, ny = normals / magnitude
+            identity = np.eye(np.prod(self.expansion.pw), dtype=np.complex128)
+            return nx * nx * identity, nx * ny * identity, ny * ny * identity
+
+        if normals.ndim != 3 or normals.shape[0] != 2:
+            raise ValueError(
+                "normal_vectors must be a constant pair or have shape "
+                "(2, nx, ny)"
+            )
+        required = tuple(2 * value - 1 for value in self.expansion.pw)
+        if any(
+            actual < minimum
+            for actual, minimum in zip(normals.shape[1:], required)
+        ):
+            raise ValueError(
+                "sampled normal_vectors are too small for the Fourier truncation; "
+                f"need at least {required}, got {normals.shape[1:]}"
+            )
+        magnitude = np.hypot(normals[0], normals[1])
+        if np.any(magnitude <= np.finfo(float).eps):
+            raise ValueError("normal_vectors must be non-zero throughout the cell")
+        nx, ny = normals / magnitude
+        return tuple(
+            convolution_matrix(component, self.expansion.pw)
+            for component in (nx * nx, nx * ny, ny * ny)
+        )
+
+    def _patterned_fourier_matrices(self):
+        """Compile epsilon and, when requested, Li-factorized operators."""
+        if self.formulation == Formulation.FFT:
+            epsilon = np.asarray(self.epsilon)
+            if epsilon.ndim != 2:
+                raise ValueError("a pixmap must be a two-dimensional array")
+            self.C = convolution_matrix(epsilon, self.expansion.pw)
+            reciprocal = None
+            if self.factorization == "normal-vector":
+                if np.any(epsilon == 0):
+                    raise ValueError(
+                        "normal-vector factorization requires non-zero "
+                        "permittivity"
+                    )
+                reciprocal = convolution_matrix(
+                    1 / epsilon, self.expansion.pw
+                )
+        elif self.formulation == Formulation.ANALYTICAL:
+            sigma = self.expansion.sigma
+            Gx, Gy, epw = self.expansion.g_vectors_expanded(3)
+            islands_data = [
+                (
+                    transform(island["type"], island["params"], Gx, Gy, sigma),
+                    island["epsilon"],
+                )
+                for island in self.epsilon
+            ]
+            direct_fourier = combine_fourier_masks(
+                islands_data, self.eps_host, inverse=False
+            ).T
+            self.C = convolution_matrix_fourier(
+                direct_fourier.reshape(epw), self.expansion.pw
+            )
+            reciprocal = None
+            if self.factorization == "normal-vector":
+                materials = (self.eps_host,) + tuple(
+                    island["epsilon"] for island in self.epsilon
+                )
+                if any(value == 0 for value in materials):
+                    raise ValueError(
+                        "normal-vector factorization requires non-zero "
+                        "permittivity"
+                    )
+                reciprocal_fourier = combine_fourier_masks(
+                    islands_data, self.eps_host, inverse=True
+                ).T
+                reciprocal = convolution_matrix_fourier(
+                    reciprocal_fourier.reshape(epw), self.expansion.pw
+                )
+        else:
+            raise ValueError("Fourier matrices require a patterned layer")
+
+        factorized = None
+        if self.factorization == "normal-vector":
+            factorized = normal_vector_permittivity(
+                self.C, reciprocal, self._normal_convolutions()
+            )
+        return self.C, factorized
 
     @classmethod
     def half_infinite(cls, expansion, type, epsilon):
@@ -244,23 +397,18 @@ class Layer:
         k0 = 2 * np.pi / wavelength
 
         if self.formulation == Formulation.FFT:
-            self.C = convolution_matrix(self.epsilon, self.expansion.pw)
+            self.C, factorized = self._patterned_fourier_matrices()
             self.IC = np.linalg.inv(self.C)
-            self.W, self.V, self.L = solve_structured_layer(Kx, Ky, self.C)
+            self.W, self.V, self.L = solve_structured_layer(
+                Kx, Ky, self.C, factorized
+            )
             self.S = build_scatmat(self.W, self.V, W0, V0, self.L, self.depth, k0)
         if self.formulation == Formulation.ANALYTICAL:
-            sigma = self.expansion.sigma
-            Gx, Gy, epw = self.expansion.g_vectors_expanded(3)
-            islands_data = [ (transform(isl["type"], isl["params"], Gx, Gy, sigma), isl["epsilon"]) for isl in self.epsilon ]
-
-            
-            fourier = combine_fourier_masks(islands_data, self.eps_host, inverse=False).T
-            self.C = convolution_matrix_fourier(fourier.reshape(epw), self.expansion.pw)
-
-            fourier = combine_fourier_masks(islands_data, self.eps_host, inverse=True).T
+            self.C, factorized = self._patterned_fourier_matrices()
             self.IC = np.linalg.inv(self.C)
-
-            self.W, self.V, self.L = solve_structured_layer(Kx, Ky, self.C)
+            self.W, self.V, self.L = solve_structured_layer(
+                Kx, Ky, self.C, factorized
+            )
             self.S = build_scatmat(self.W, self.V, W0, V0, self.L, self.depth, k0)
         elif self.formulation == Formulation.UNIFORM:
             self.W, self.V, self.L = solve_uniform_layer(Kx, Ky, self.epsilon)

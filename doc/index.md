@@ -68,7 +68,12 @@ without solving any eigenvalue problem
 #### add\_layer\_pixmap
 
 ```python
-def add_layer_pixmap(name, epsilon, depth)
+def add_layer_pixmap(name,
+                     epsilon,
+                     depth,
+                     *,
+                     factorization="classical",
+                     normal_vectors=None)
 ```
 
 Add a layer from 2D ndarray that provides eps(x,y). This method will use FFT.
@@ -78,10 +83,16 @@ Add a layer from 2D ndarray that provides eps(x,y). This method will use FFT.
 #### add\_layer\_analytical
 
 ```python
-def add_layer_analytical(name, epsilon, epsilon_host, depth)
+def add_layer_analytical(name,
+                         epsilon,
+                         epsilon_host,
+                         depth,
+                         *,
+                         factorization="classical",
+                         normal_vectors=None)
 ```
 
-Add a layer from 2D ndarray that provides eps(x,y). This method will use analytical formulas.
+Add a layer from an islands description using analytical Fourier transforms.
 
 <a id="khepri.crystal.Crystal.set_device"></a>
 
@@ -346,7 +357,13 @@ class Layer()
 
 ```python
 @classmethod
-def pixmap_or_uniform(cls, expansion, pixmap, depth)
+def pixmap_or_uniform(cls,
+                      expansion,
+                      pixmap,
+                      depth,
+                      *,
+                      factorization="classical",
+                      normal_vectors=None)
 ```
 
 This method is a convenience when you don't know what is inside pixmap.
@@ -366,7 +383,13 @@ The expected use case is when doing optimization.
 
 ```python
 @classmethod
-def pixmap(cls, expansion, pixmap, depth)
+def pixmap(cls,
+           expansion,
+           pixmap,
+           depth,
+           *,
+           factorization="classical",
+           normal_vectors=None)
 ```
 
 Constructing a layer this way will use the FFT algorithm to source the convolution matrix.

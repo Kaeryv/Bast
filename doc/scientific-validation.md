@@ -169,23 +169,22 @@ absorbed in the finite film. It checks the full R/T/A triplet against an
 independent oblique characteristic matrix, for both polarizations and several
 thicknesses, including the zero-thickness limit.
 
-Two cases deliberately expose unresolved scientific gaps rather than becoming
-weak regressions:
+One case deliberately exposes an unresolved scientific gap rather than becoming
+a weak regression:
 
 - `absorbing-interface` currently fails the complex Fresnel reflectance and
   transmitted-flux checks because the exterior eigenspace assumes a lossless
   exit medium. Its scientific test is an expected failure until lossy
   half-spaces are implemented explicitly.
 - `lalanne-chrome-grating` implements the classic normal-incidence chrome
-  lamellar grating: period 0.25 µm, depth 0.20 µm, air-groove fraction 0.30,
-  `n_Cr = 3.18 - 4.41j` at 0.55 µm, and a glass substrate of index 1.5. The
-  literature modal reference is `T0 = 0.7028`. The current analytical
-  patterned-layer formulation does not reach this value for TM polarization;
-  this is the acceptance test for the planned normal-vector/Li Fourier
-  factorization work. It is recorded as an expected failure, not redefined as
-  self-convergence.
+  lamellar grating: period 0.25 µm, depth 0.20 µm, chrome fraction 0.30,
+  `n_Cr = 3.18 - 4.41j` at 0.55 µm, and a glass substrate of index 1.5. It is a
+  hard test of the normal-vector/Li Fourier factorization. Lalanne and Morris
+  quote the modal result `T0 = 0.7028`; the later independent calculation by
+  Chiou et al. gives `T0 = 0.69828465`. Khepri's 41-harmonic result is within
+  0.015 absolute transmission of the former and converges toward the latter.
 
-An unexpected success of either expected-failure test fails `unittest`, which
+An unexpected success of the expected-failure test fails `unittest`, which
 forces the marker and this documentation to be reviewed when the solver is
 fixed.
 

@@ -155,7 +155,49 @@ def solve_uniform_layer(Kx, Ky, er, m_r = 1):
 
     return W, V, eigenvalues
 
-def solve_structured_layer(kx, ky, C):
+def normal_vector_permittivity(
+    epsilon_convolution, reciprocal_convolution, normal_convolutions
+):
+    """Return the in-plane permittivity operators for Li factorization.
+
+    ``normal_convolutions`` contains the convolution matrices of
+    :math:`n_x^2`, :math:`n_x n_y`, and :math:`n_y^2` for a real unit-normal
+    field continued periodically over the unit cell.  Products normal to a
+    material boundary use Li's inverse rule, while tangential products retain
+    Laurent's rule.
+    """
+    epsilon_convolution = np.asarray(epsilon_convolution, dtype=np.complex128)
+    reciprocal_convolution = np.asarray(
+        reciprocal_convolution, dtype=np.complex128
+    )
+    if epsilon_convolution.ndim != 2 or (
+        epsilon_convolution.shape[0] != epsilon_convolution.shape[1]
+    ):
+        raise ValueError("epsilon convolution matrix must be square")
+    if reciprocal_convolution.shape != epsilon_convolution.shape:
+        raise ValueError("reciprocal convolution matrix has the wrong shape")
+    if len(normal_convolutions) != 3:
+        raise ValueError("normal_convolutions must contain nxx, nxy, and nyy")
+    nxx, nxy, nyy = tuple(
+        np.asarray(matrix, dtype=np.complex128)
+        for matrix in normal_convolutions
+    )
+    if any(
+        matrix.shape != epsilon_convolution.shape
+        for matrix in (nxx, nxy, nyy)
+    ):
+        raise ValueError("normal convolution matrices have the wrong shape")
+
+    identity = np.eye(epsilon_convolution.shape[0], dtype=np.complex128)
+    inverse_rule = solve(reciprocal_convolution, identity)
+    discontinuity = epsilon_convolution - inverse_rule
+    epsilon_xx = epsilon_convolution - discontinuity @ nxx
+    epsilon_xy = -discontinuity @ nxy
+    epsilon_yy = epsilon_convolution - discontinuity @ nyy
+    return epsilon_xx, epsilon_xy, epsilon_yy
+
+
+def solve_structured_layer(kx, ky, C, factorized_permittivity=None):
     KX = np.diag(kx)
     KY = np.diag(ky)
     
@@ -164,10 +206,27 @@ def solve_structured_layer(kx, ky, C):
         np.hstack([KX @ solve(C, KY),     I - KX @ solve(C, KX)]),
         np.hstack([KY @ solve(C, KY) - I,   - KY @ solve(C, KX)]),
     ]).astype(np.complex128)
-    Qi = np.vstack([
-        np.hstack([KX @ KY,     C - KX @ KX]),
-        np.hstack([KY @ KY - C,   - KY @ KX]),
-    ]).astype(np.complex128)
+    if factorized_permittivity is None:
+        Qi = np.vstack([
+            np.hstack([KX @ KY,     C - KX @ KX]),
+            np.hstack([KY @ KY - C,   - KY @ KX]),
+        ]).astype(np.complex128)
+    else:
+        epsilon_xx, epsilon_xy, epsilon_yy = tuple(
+            np.asarray(matrix, dtype=np.complex128)
+            for matrix in factorized_permittivity
+        )
+        if any(
+            matrix.shape != C.shape
+            for matrix in (epsilon_xx, epsilon_xy, epsilon_yy)
+        ):
+            raise ValueError(
+                "factorized permittivity matrices have the wrong shape"
+            )
+        Qi = np.vstack([
+            np.hstack([KX @ KY + epsilon_xy, epsilon_yy - KX @ KX]),
+            np.hstack([KY @ KY - epsilon_xx, -KY @ KX - epsilon_xy]),
+        ]).astype(np.complex128)
     
     lam2i, WI = np.linalg.eig(Pi @ Qi)
     lam = np.sqrt(lam2i+0j) # changed from np.sqrt()

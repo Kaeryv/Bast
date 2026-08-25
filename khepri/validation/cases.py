@@ -413,7 +413,7 @@ class LalanneChromeGratingCase(ValidationCase):
     period_um: float = 0.25
     wavelength_um: float = 0.55
     depth_um: float = 0.20
-    air_groove_fraction: float = 0.30
+    chrome_ridge_fraction: float = 0.30
     chrome_index: complex = 3.18 - 4.41j
     substrate_index: float = 1.5
 
@@ -467,6 +467,16 @@ class LalanneChromeGratingCase(ValidationCase):
     def literature_transmission(self) -> float:
         return float(self.manifest["reference_transmitted_zero_order"])
 
+    @property
+    def secondary_literature_transmission(self) -> float:
+        return float(
+            self.manifest["secondary_reference_transmitted_zero_order"]
+        )
+
+    @property
+    def air_groove_fraction(self) -> float:
+        return 1.0 - self.chrome_ridge_fraction
+
     def configurations(self) -> Iterable[CaseConfiguration]:
         for ordinal, harmonics in enumerate(self.pw_values):
             pw = normalize_pw((harmonics, 1))
@@ -502,13 +512,15 @@ class LalanneChromeGratingCase(ValidationCase):
             pattern.islands(),
             pattern.background,
             self.depth_um / self.period_um,
+            factorization="normal-vector",
+            normal_vectors=(1.0, 0.0),
         )
         crystal.set_device(["chrome-grating"], fields_mask=False)
         crystal.set_source(
             self.wavelength_um / self.period_um,
             te=0.0,
             tm=1.0,
-            theta=1e-7,
+            theta=1e-5,
             phi=0.0,
         )
         crystal.solve()
@@ -516,10 +528,11 @@ class LalanneChromeGratingCase(ValidationCase):
         return CaseResult(
             {"R": reflection, "T0": transmission, "A": absorption},
             metadata={
-                "normal_incidence_regularization_degrees": 1e-7,
+                "normal_incidence_regularization_degrees": 1e-5,
                 "epsilon_chrome": chrome_epsilon,
                 "only_zero_order_propagates": True,
-                "factorization": "current analytical patterned-layer formulation",
+                "factorization": "normal-vector",
+                "normal_vectors": [1.0, 0.0],
             },
             retained_bytes=crystal.Stot.nbytes,
         )

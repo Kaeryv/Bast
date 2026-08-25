@@ -25,8 +25,8 @@
     "dimension": "one-dimensional lamellar grating, invariant along grooves",
     "period_um": 0.25,
     "depth_um": 0.20,
-    "air_groove_fraction": 0.30,
-    "chrome_ridge_fraction": 0.70,
+    "air_groove_fraction": 0.70,
+    "chrome_ridge_fraction": 0.30,
     "groove_material": "air",
     "ridge_refractive_index": {
       "real": 3.18,
@@ -43,10 +43,12 @@
   },
   "observable": "transmitted zeroth-order diffraction efficiency",
   "reference_transmitted_zero_order": 0.7028,
+  "secondary_reference_transmitted_zero_order": 0.69828465,
   "uncertainty": "The paper reports 70.28% from a 90-mode modal calculation and treats it as the exact diffraction efficiency; no raw numerical trace is available.",
   "data_file": null,
   "notes": [
-    "The period, depth, and duty-cycle text is cross-checked against Chiou et al. (2009).",
+    "The period, depth, and duty-cycle text is cross-checked against Chiou et al. (2009); its duty cycle denotes the chrome fraction.",
+    "Chiou et al. report T0=0.69828465 at 365 orders, exposing a small literature-level discrepancy with the 0.7028 value quoted by Lalanne and Morris.",
     "Only the zeroth exterior order propagates for this geometry, so total transmitted power equals T0.",
     "This is a Fourier-factorization acceptance benchmark, not a frozen Khepri fixture."
   ]
