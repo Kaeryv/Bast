@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "case": "luder-guided-mode",
+  "source": {
+    "citation": "H. Luder, M. Paulsen, and M. Gerken, Optical and Quantum Electronics 52, 180 (2020)",
+    "doi": "10.1007/s11082-020-02296-7",
+    "figure": "Figure 3"
+  },
+  "kind": "graphical-literature-scalar",
+  "reference_resonance_nm": {
+    "te": 600.1,
+    "tm": 535.7
+  },
+  "geometry": {
+    "period_nm": 350.0,
+    "grating_thickness_nm": 60.0,
+    "waveguide_thickness_nm": 85.0,
+    "grating_fill_fraction": 0.6,
+    "grating_index": 1.5,
+    "waveguide_index": 2.3,
+    "substrate_index": 1.5
+  },
+  "uncertainty": "The paper provides graphical resonance positions rather than a tabulated spectrum. The current geometry reconstruction remains approximately 18 nm away for TE and is not a quantitative reproduction.",
+  "data_file": null
+}

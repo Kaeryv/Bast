@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "case": "lou-twist-map",
+  "source": {
+    "citation": "B. Lou et al., Physical Review Letters 126, 136101 (2021)",
+    "doi": "10.1103/PhysRevLett.126.136101",
+    "figure": "Figure 2(a)"
+  },
+  "kind": "geometry-and-graphical-map",
+  "geometry": {
+    "lattice": "square",
+    "host_epsilon": 4.0,
+    "hole_epsilon": 1.0,
+    "hole_radius_over_a": 0.25,
+    "slab_depth_over_a": 0.2,
+    "gap_over_a": 0.3,
+    "exterior_epsilon": 1.0
+  },
+  "axes": {
+    "frequency_c_over_a": [0.70, 0.84],
+    "twist_degrees": [0.0, 45.0]
+  },
+  "observable": "total far-field transmitted power for incident RCP",
+  "uncertainty": "No digitized numerical fixture is bundled yet. This manifest validates geometry provenance only; Khepri self-convergence is not literature agreement.",
+  "data_file": null
+}

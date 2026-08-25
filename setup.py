@@ -42,7 +42,14 @@ setup(
 
     keywords='rcwa electromagnetic solver maxwell',
 
-    packages=['khepri'],
+    packages=find_packages(include=['khepri', 'khepri.*']),
+    package_data={
+        'khepri.validation': [
+            'reference_data/*.md',
+            'reference_data/*/*.json',
+            'reference_data/*/*.csv',
+        ],
+    },
     install_requires=requirements,
  
     project_urls={  # Optional

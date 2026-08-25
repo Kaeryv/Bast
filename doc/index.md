@@ -1,3 +1,5 @@
+[Reusable scientific validation cases](scientific-validation.md)
+
 <a id="tcell"></a>
 
 # tcell
@@ -490,4 +492,3 @@ This has limits and only works for 1D array.
 <a id="khepri.gui"></a>
 
 # khepri.gui
-
