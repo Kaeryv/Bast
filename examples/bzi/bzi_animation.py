@@ -86,7 +86,7 @@ if False:
     H = fields[1, :, :, :, 1]
     print(E.shape)
     PT = np.cross(E, np.conj(H/1j)) # 1j because of normalization
-    x, y, z = coords(0, bzi, bzi/2, bzi/2, 0.01, zmax, (3, 256, 256))
+    x, y, z = coords(0, bzx, bzy/2, bzy/2, 0.01, zmax, (3, 256, 256))
     PTnorm = np.sum(np.power(PT, 2), axis=-1).real
     fig, ax = plt.subplots(figsize=(8,6), dpi=250)
     vmax = np.max(np.abs(PTnorm.real))
