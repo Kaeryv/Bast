@@ -1,11 +1,53 @@
 import logging
-
 import numpy as np
-from numpy.lib.stride_tricks import as_strided
 from math import prod
 
 from khepri.layer import Layer
 from khepri.alternative import free_space_eigenmodes
+from khepri.operators import ExtendedScatteringOperator, OperatorCapabilityError
+
+def _embedding_indices(base_size, subspace_index, kind):
+    """Indices occupied by one shifted base problem in the joint basis."""
+    base_indices = np.arange(base_size)
+    if kind == 0:
+        return subspace_index * base_size + base_indices
+    if kind == 1:
+        return base_indices * base_size + subspace_index
+    raise NotImplementedError("No more than two different lattices. Feel free to contribute!")
+
+
+def _scatter_subspace(target, submatrix, subspace_index, kind=0):
+    """Insert one ``2N x 2N`` matrix into a ``2N² x 2N²`` joint block."""
+    base_size = submatrix.shape[0] // 2
+    indices = _embedding_indices(base_size, subspace_index, kind)
+    joint_size = base_size**2
+    for output_polarization in range(2):
+        source_rows = slice(
+            output_polarization * base_size,
+            (output_polarization + 1) * base_size,
+        )
+        target_rows = output_polarization * joint_size + indices
+        for input_polarization in range(2):
+            source_columns = slice(
+                input_polarization * base_size,
+                (input_polarization + 1) * base_size,
+            )
+            target_columns = input_polarization * joint_size + indices
+            target[np.ix_(target_rows, target_columns)] = submatrix[
+                source_rows, source_columns
+            ]
+
+
+def _scatter_scattering(target, scattering, subspace_index, kind=0):
+    for output_port in range(2):
+        for input_port in range(2):
+            _scatter_subspace(
+                target[output_port, input_port],
+                scattering[output_port, input_port],
+                subspace_index,
+                kind,
+            )
+
 
 def _joint_subspace(submatrices: list, kind=0):
     """
@@ -30,24 +72,8 @@ def _joint_subspace(submatrices: list, kind=0):
     # N is the number of g vectors
     N = submatrices[0].shape[0] // 2
     result = np.zeros((2*N**2, 2*N**2), dtype=submatrices[0].dtype)
-    ds = result.strides[-1]
-
-    if kind == 0:
-        strides = (ds*e for e in (2*N**4,N**2,2*N**3+N, 2*N**2, 1))
-    elif kind == 1:
-        strides = (ds*e for e in (2*N**4,N**2,2*N**2+1, 2*N**3, N))
-    else:
-        raise NotImplementedError("No more than two different lattices. Feel free to contribute!")
-    # (BLOCKS, BLOCKS, MATRICES, INNER, INNER)
-    view = as_strided(result, (2, 2, N, N, N), strides)
-
-    # Future note: to implement 3 lattices, the matrices list goes 2D
-    # (BLOCKS, BLOCKS, MATRICES, MATRICES, INNER, INNER)
-    # view = as_strided(result, (2, 2, N, N, N, N), strides)
-
-    for i, smat in enumerate(submatrices):
-        view_smat = as_strided(smat, (2, 2, N, N), (ds*e for e in (2*N**2,N, 2*N, 1)))
-        view[:, :, i] = view_smat
+    for index, submatrix in enumerate(submatrices):
+        _scatter_subspace(result, submatrix, index, kind)
     return result
 
 
@@ -55,12 +81,12 @@ def joint_subspace(submatrices: list, kind=0):
     '''
         Wrapper of _joint_subspace that processes 4 quadrants of smatrix
     '''
-    output = [[None, None], [None, None]]
-    for i in range(2):
-        for j in range(2):
-            output[i][j] = _joint_subspace([ sm[i,j].copy() for sm in submatrices], kind=kind)
-    
-    return np.asarray(output)
+    base_size = submatrices[0].shape[-1] // 2
+    dimension = 2 * base_size**2
+    output = np.zeros((2, 2, dimension, dimension), dtype=submatrices[0].dtype)
+    for index, scattering in enumerate(submatrices):
+        _scatter_scattering(output, scattering, index, kind)
+    return output
 
 
 class ExtendedLayer():
@@ -78,30 +104,87 @@ class ExtendedLayer():
         self.base = base
         self.depth = self.base.depth
         self.fields = self.base.fields
+        self._S = None
+        self.operator = None
+        self.operator_solved = False
+
+    @property
+    def S(self):
+        if self._S is None and self.operator_solved:
+            raise OperatorCapabilityError(
+                "a dense extended-layer scattering matrix",
+                "The compact shifted-subspace representation was selected. "
+                "Solve the containing Crystal with backend='dense' if the full "
+                "matrix is required.",
+            )
+        return self._S
+
+    @S.setter
+    def S(self, value):
+        self._S = value
+
+    @property
+    def supports_operator(self):
+        return not self.fields
+
+    def solve_operator(self, k_parallel, wavelength):
+        if self.fields:
+            raise OperatorCapabilityError(
+                "internal fields",
+                "Disable this layer in set_device(..., fields_mask=...) or "
+                "solve the containing Crystal with backend='dense'.",
+            )
+        base_scattering = None
+        for shift_index, kp in enumerate(self.gs.T):
+            self.base.fields = False
+            self.base.solve(kp + k_parallel, wavelength)
+            if base_scattering is None:
+                base_scattering = np.empty(
+                    (len(self.gs.T),) + self.base.S.shape,
+                    dtype=self.base.S.dtype,
+                )
+            base_scattering[shift_index] = self.base.S
+        self._S = None
+        self.operator = ExtendedScatteringOperator(base_scattering, self.mode)
+        self.operator_solved = True
+        # The operator owns copies of every shifted base S matrix, including
+        # the final one still referenced by ``base`` after the loop.
+        self.base.S = None
+        return self.operator
     
     def solve(self, k_parallel, wavelength):
-        Ss = list()
+        self.operator = None
+        self.operator_solved = False
         WIs = list()
         VIs = list()
         LIs = list()
         if isinstance(self.base, Layer) and hasattr(self, "fields"):
             self.base.fields = self.fields
 
-        for kp in self.gs.T:
+        extended_scattering = None
+        for shift_index, kp in enumerate(self.gs.T):
             if isinstance(self.base, Layer):
                 self.base.solve(kp + k_parallel, wavelength)
             else:
                 self.base.set_source(wavelength, np.nan, np.nan, kp=kp + k_parallel)
                 self.base.solve()
 
-            Ss.append(self.base.S.copy())
+            if extended_scattering is None:
+                base_size = self.base.S.shape[-1] // 2
+                dimension = 2 * base_size**2
+                extended_scattering = np.zeros(
+                    (2, 2, dimension, dimension), dtype=self.base.S.dtype
+                )
+            _scatter_scattering(
+                extended_scattering, self.base.S, shift_index, self.mode
+            )
             if self.fields:
                 WIs.append(self.base.W.copy())
                 VIs.append(self.base.V.copy())
                 LIs.append(np.diag(self.base.L).copy())
 
         mode = self.mode
-        self.S =  joint_subspace(Ss, kind=mode)
+        self.S = extended_scattering
         
         if self.fields:
             self.W = _joint_subspace(WIs, kind=mode)
@@ -124,4 +207,3 @@ def extended_freespace(e, gs, wl, mode, k_parallel):
     V0 = _joint_subspace(V0s, kind=mode)
 
     return W0, V0
-

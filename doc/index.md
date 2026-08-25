@@ -1,5 +1,7 @@
 [Reusable scientific validation cases](scientific-validation.md)
 
+[Operator RCWA backend](operator-rcwa.md)
+
 <a id="tcell"></a>
 
 # tcell

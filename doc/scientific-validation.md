@@ -94,6 +94,7 @@ case = LouTwistMapCase(
     frequencies=(0.74, 0.76, 0.78),
     twists_degrees=(5.0, 10.0, 15.0),
     pw=(3, 3),
+    backend="operator",
 )
 run = ThreadRunner(4).run(case)
 map_result = case.collect(run.evaluations)
