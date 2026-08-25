@@ -1,6 +1,10 @@
 import unittest
 
-from khepri.validation import CaseResult, GuidedModeSpectrumCase
+from khepri.validation import (
+    CaseResult,
+    DisplacementSensitiveSlabCase,
+    GuidedModeSpectrumCase,
+)
 
 
 class SpectrumContractTests(unittest.TestCase):
@@ -24,6 +28,28 @@ class SpectrumContractTests(unittest.TestCase):
         self.assertEqual(reference.kind, "graphical-literature-scalar")
         self.assertIn("18 nm", reference.uncertainty)
         self.assertAlmostEqual(case.aggregate_error(aggregate, reference), 17.9)
+
+    def test_fan_configs_are_gap_shift_frequency_product(self):
+        case = DisplacementSensitiveSlabCase(
+            pw=(1, 1),
+            frequency_range=(0.51, 0.53),
+            samples=3,
+            gaps=(1.35, 0.55),
+            lateral_shifts=(0.0, 0.05),
+        )
+        configurations = tuple(case.configurations())
+        self.assertEqual(len(configurations), 12)
+        self.assertEqual(
+            [item.ordinal for item in configurations], list(range(12))
+        )
+        self.assertEqual(
+            [item.parameter("gap_over_a") for item in configurations[:6]],
+            [1.35] * 6,
+        )
+        self.assertEqual(
+            [item.parameter("shift_x_over_a") for item in configurations[:6]],
+            [0.0] * 3 + [0.05] * 3,
+        )
 
 
 if __name__ == "__main__":

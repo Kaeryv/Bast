@@ -4,6 +4,8 @@ import numpy as np
 
 from khepri.validation import (
     BrewsterInterfaceCase,
+    DisplacementSensitiveSlabCase,
+    FabryPerotCavityCase,
     LouTwistMapCase,
     SequentialRunner,
     ThinFilmCase,
@@ -32,6 +34,52 @@ class ScientificCaseTests(unittest.TestCase):
             case.error(evaluation, case.reference(evaluation.configuration)),
             2e-11,
         )
+
+    def test_fabry_perot_matches_independent_characteristic_matrix(self):
+        case = FabryPerotCavityCase(
+            wavelengths=(0.91, 1.0),
+            gaps=(0.20, 0.47, 0.80),
+            polarizations=("s", "p"),
+        )
+        run = ThreadRunner(2).run(case)
+        aggregate = case.collect(run.evaluations)
+        self.assertEqual(aggregate.series["T"].shape, (2, 2, 3))
+        for evaluation in run.evaluations:
+            reference = case.reference(evaluation.configuration)
+            self.assertLess(case.error(evaluation, reference), 5e-10)
+            self.assertLess(abs(evaluation.result.observables["A"]), 2e-10)
+        np.testing.assert_allclose(
+            aggregate.series["T"][0], aggregate.series["T"][1], atol=2e-12
+        )
+
+    def test_fan_case_is_parallel_safe_and_conserves_energy_at_pw1(self):
+        case = DisplacementSensitiveSlabCase(
+            pw=(1, 1),
+            frequency_range=(0.52, 0.56),
+            samples=3,
+            gaps=(1.35, 0.55),
+            lateral_shifts=(0.0, 0.05),
+        )
+        serial = SequentialRunner().run(case)
+        threaded = ThreadRunner(2).run(case)
+        serial_result = case.collect(serial.evaluations)
+        threaded_result = case.collect(threaded.evaluations)
+        np.testing.assert_allclose(
+            serial_result.series["T"], threaded_result.series["T"], atol=2e-12
+        )
+        self.assertEqual(serial_result.series["T"].shape, (2, 2, 3))
+        self.assertLess(serial_result.observables["max_energy_defect"], 1e-10)
+
+    def test_fan_lateral_shift_changes_the_patterned_spectrum_at_pw3(self):
+        case = DisplacementSensitiveSlabCase.published_lateral_study(
+            pw=(3, 3),
+            frequency_range=(0.52, 0.57),
+            samples=11,
+        )
+        result = case.collect(ThreadRunner(2).run(case).evaluations)
+        difference = np.max(np.abs(result.series["T"][0, 0] - result.series["T"][0, 1]))
+        self.assertGreater(difference, 0.02)
+        self.assertLess(result.observables["max_energy_defect"], 1e-10)
 
     def test_lou_map_is_cartesian_frequency_major_and_parallel_safe_at_pw1(self):
         case = LouTwistMapCase(

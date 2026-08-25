@@ -104,6 +104,51 @@ transmission = map_result.series["T"]
 is one independent configuration, and `collect` locates the resonance after
 all wavelengths return.
 
+`DisplacementSensitiveSlabCase` is a three-axis product:
+
+```python
+for gap, lateral_shift, frequency in product(gaps, shifts, frequencies):
+    yield CaseConfiguration(...)
+```
+
+This matters because a complete Suh–Fan spectrum can be distributed without
+sharing a mutable crystal between workers. Collection restores arrays with
+shape `(n_gap, n_shift, n_frequency)` without pretending that the largest
+sampled value is necessarily the narrow resonance. The default constructor
+reproduces the published longitudinal gap list. The lateral-displacement
+geometry is explicit:
+
+```python
+case = DisplacementSensitiveSlabCase.published_lateral_study(
+    pw=(5, 5), samples=201
+)
+```
+
+## Curated case catalogue and references
+
+| Slug | Physical gate | Reference |
+|---|---|---|
+| `thin-film` | Fresnel interfaces, phase propagation, oblique TE/TM flux | Macleod, *Thin-Film Optical Filters*, DOI [10.1201/b21960](https://doi.org/10.1201/b21960) |
+| `brewster` | TM Brewster zero and exterior flux normalization | Born & Wolf, *Principles of Optics*, DOI [10.1017/CBO9781139644187](https://doi.org/10.1017/CBO9781139644187) |
+| `fabry-perot` | Repeated layers, Redheffer ordering, cavity phase, multiple reflections | Macleod, DOI [10.1201/b21960](https://doi.org/10.1201/b21960) |
+| `luder-guided-mode` | Guided-mode spectral feature | Lüder et al. (2020), DOI [10.1007/s11082-020-02296-7](https://doi.org/10.1007/s11082-020-02296-7) |
+| `lou-twist-map` | Extended-basis twisted bilayer map | Lou et al. (2021), DOI [10.1103/PhysRevLett.126.136101](https://doi.org/10.1103/PhysRevLett.126.136101) |
+| `fan-displacement-sensitive-slabs` | Longitudinal and lateral displacement of coupled guided-resonant slabs | Suh et al. (2003), DOI [10.1063/1.1563739](https://doi.org/10.1063/1.1563739) |
+
+The Fabry–Pérot case is a strong deterministic regression for stacking. Its
+normal-incidence characteristic-matrix oracle is independent of Khepri's
+scattering matrices and must agree pointwise. It is intentionally not sold as
+a patterned-layer or Fourier-factorization benchmark: all layers are uniform.
+
+The Suh–Fan case is more demanding scientifically. It uses the paper's square
+lattice, air-hole radius `0.4a`, slab permittivity 12, thickness `0.55a`, and
+published gap/shift sweeps. The bundled manifest records the plotted claims,
+but contains no invented trace: the article does not provide numerical arrays.
+Consequently the fast tests enforce execution order, thread safety, energy
+conservation, and data shape. A literature reproduction must additionally
+show plane-wave/frequency convergence before comparing resonance motion or
+splitting against Figures 2 and 4.
+
 ## Adding a case
 
 1. Add an immutable case class under `khepri.validation.cases` (the module can
@@ -150,5 +195,6 @@ Run a registered case with:
 
 ```bash
 python scripts/validation_run.py thin-film --threads 1 --output artifacts/validation
+python scripts/validation_run.py fabry-perot --threads 4 --output artifacts/validation
 python scripts/validation_run.py lou-twist-map --threads 4 --output artifacts/validation
 ```

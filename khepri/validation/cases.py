@@ -12,7 +12,12 @@ from khepri.draw import Drawing
 from khepri.expansion import Expansion
 from khepri.layer import Layer
 
-from .analytics import brewster_angle, fresnel_interface, single_film
+from .analytics import (
+    brewster_angle,
+    fresnel_interface,
+    multilayer_stack,
+    single_film,
+)
 from .fixtures import load_manifest
 from .models import (
     CaseConfiguration,
@@ -150,6 +155,13 @@ class BrewsterInterfaceCase(ValidationCase):
     title = "Brewster-angle interface"
     description = "A lossless interface has zero TM reflection at Brewster incidence."
     tags = ("fast", "analytic", "integration", "brewster")
+    references = (
+        LiteratureReference(
+            "M. Born and E. Wolf, Principles of Optics, 7th ed.",
+            "https://doi.org/10.1017/CBO9781139644187",
+            "Fresnel coefficients and the TM Brewster zero.",
+        ),
+    )
 
     @property
     def theta(self) -> float:
@@ -198,7 +210,125 @@ class BrewsterInterfaceCase(ValidationCase):
             float(configuration.parameter("theta_radians")),
             "p",
         )
-        return ReferenceResult(values, "analytical")
+        return ReferenceResult(values, "analytical", self.references[0])
+
+
+@dataclass(frozen=True)
+class FabryPerotCavityCase(ValidationCase):
+    """Two finite dielectric mirrors separated by a variable air cavity."""
+
+    pw: PlaneWaves = (1, 1)
+    wavelengths: Tuple[float, ...] = (0.9, 1.0, 1.1)
+    gaps: Tuple[float, ...] = (0.20, 0.50, 0.80)
+    polarizations: Tuple[str, ...] = ("s", "p")
+    epsilon_incident: float = 1.0
+    epsilon_mirror: float = 4.0
+    epsilon_cavity: float = 1.0
+    epsilon_substrate: float = 1.0
+    mirror_thickness: float = 0.125
+
+    slug = "fabry-perot"
+    title = "Fabry–Pérot cavity between finite dielectric mirrors"
+    description = (
+        "Two identical dielectric films separated by a variable cavity, "
+        "checked against an independent characteristic matrix."
+    )
+    tags = ("fast", "analytic", "integration", "fabry-perot", "parallel")
+    references = (
+        LiteratureReference(
+            "H. A. Macleod, Thin-Film Optical Filters, 4th ed.",
+            "https://doi.org/10.1201/b21960",
+            "Characteristic matrices and Fabry–Pérot multiple reflection.",
+        ),
+    )
+
+    def configurations(self) -> Iterable[CaseConfiguration]:
+        for ordinal, (polarization, wavelength, gap) in enumerate(
+            product(self.polarizations, self.wavelengths, self.gaps)
+        ):
+            yield CaseConfiguration.create(
+                self.slug,
+                (
+                    f"pol={polarization.lower()};wavelength={wavelength:.12g};"
+                    f"gap={gap:.12g}"
+                ),
+                ordinal,
+                self.pw,
+                {
+                    "polarization": polarization.lower(),
+                    "wavelength": wavelength,
+                    "gap": gap,
+                },
+            )
+
+    def evaluate(self, configuration: CaseConfiguration) -> CaseResult:
+        polarization = str(configuration.parameter("polarization"))
+        wavelength = float(configuration.parameter("wavelength"))
+        gap = float(configuration.parameter("gap"))
+        crystal = Crystal(
+            configuration.pw,
+            lattice_pitch=0.37,
+            epsi=self.epsilon_incident,
+            epse=self.epsilon_substrate,
+        )
+        crystal.add_layer_uniform(
+            "mirror", self.epsilon_mirror, self.mirror_thickness
+        )
+        crystal.add_layer_uniform("cavity", self.epsilon_cavity, gap)
+        crystal.set_device(["mirror", "cavity", "mirror"], fields_mask=False)
+        te, tm = ((1.0, 0.0) if polarization in ("s", "te") else (0.0, 1.0))
+        crystal.set_source(wavelength, te=te, tm=tm)
+        crystal.solve()
+        reflection, transmission, absorption = _rta(crystal)
+        return CaseResult(
+            {"R": reflection, "T": transmission, "A": absorption},
+            metadata={"gap": gap, "wavelength": wavelength},
+            retained_bytes=crystal.Stot.nbytes,
+        )
+
+    def reference(self, configuration: CaseConfiguration) -> ReferenceResult:
+        gap = float(configuration.parameter("gap"))
+        values = multilayer_stack(
+            self.epsilon_incident,
+            self.epsilon_substrate,
+            (
+                (self.epsilon_mirror, self.mirror_thickness),
+                (self.epsilon_cavity, gap),
+                (self.epsilon_mirror, self.mirror_thickness),
+            ),
+            float(configuration.parameter("wavelength")),
+        )
+        return ReferenceResult(values, "analytical", self.references[0])
+
+    def collect(self, evaluations: Sequence[CaseEvaluation]) -> CaseResult:
+        expected = len(self.polarizations) * len(self.wavelengths) * len(self.gaps)
+        if len(evaluations) != expected:
+            raise ValueError(
+                f"expected {expected} cavity points, received {len(evaluations)}"
+            )
+        evaluations = tuple(
+            sorted(evaluations, key=lambda item: item.configuration.ordinal)
+        )
+        shape = (len(self.polarizations), len(self.wavelengths), len(self.gaps))
+        return CaseResult(
+            {
+                "max_energy_defect": float(
+                    max(abs(item.result.observables["A"]) for item in evaluations)
+                )
+            },
+            series={
+                name: np.asarray(
+                    [item.result.observables[name] for item in evaluations]
+                ).reshape(shape)
+                for name in ("R", "T", "A")
+            },
+            metadata={
+                "axis_order": ["polarization", "wavelength", "gap"],
+                "polarizations": list(self.polarizations),
+                "wavelengths": list(self.wavelengths),
+                "gaps": list(self.gaps),
+            },
+        )
 
 
 @dataclass(frozen=True)
@@ -429,13 +559,181 @@ class LouTwistMapCase(ValidationCase):
         )
 
 
+@dataclass(frozen=True)
+class DisplacementSensitiveSlabCase(ValidationCase):
+    """Longitudinal and lateral displacement of two guided-resonant slabs."""
+
+    pw: PlaneWaves = (5, 5)
+    frequency_range: Tuple[float, float] = (0.49, 0.59)
+    samples: int = 101
+    gaps: Tuple[float, ...] = (1.35, 1.10, 0.95, 0.85, 0.75, 0.65, 0.55)
+    lateral_shifts: Tuple[float, ...] = (0.0,)
+    polarization: str = "te"
+    slab_epsilon: float = 12.0
+    hole_epsilon: float = 1.0
+    hole_radius: float = 0.4
+    slab_thickness: float = 0.55
+
+    slug = "fan-displacement-sensitive-slabs"
+    title = "Fan displacement-sensitive coupled photonic-crystal slabs"
+    description = (
+        "Two square-hole photonic-crystal slabs with independently sampled "
+        "frequency, longitudinal gap, and lateral registry."
+    )
+    tags = (
+        "slow",
+        "literature",
+        "guided-resonance",
+        "displacement",
+        "spectrum",
+        "parallel",
+    )
+    references = (
+        LiteratureReference(
+            (
+                "W. Suh, M. F. Yanik, O. Solgaard, and S. Fan, "
+                "Appl. Phys. Lett. 82, 1999–2001 (2003)"
+            ),
+            "https://doi.org/10.1063/1.1563739",
+            "Figures 2 and 4: longitudinal and lateral displacement sensitivity.",
+        ),
+    )
+
+    @property
+    def manifest(self):
+        return load_manifest("suh_fan_2003/manifest.json")
+
+    @classmethod
+    def published_lateral_study(cls, **overrides):
+        """Build the paper's h=0.1a, shift=(0, 0.05a) comparison."""
+
+        parameters = {
+            "gaps": (0.1,),
+            "lateral_shifts": (0.0, 0.05),
+        }
+        parameters.update(overrides)
+        return cls(**parameters)
+
+    def frequencies(self) -> np.ndarray:
+        if self.samples < 2:
+            raise ValueError("samples must be at least two")
+        if self.frequency_range[0] >= self.frequency_range[1]:
+            raise ValueError("frequency_range must be strictly increasing")
+        return np.linspace(
+            self.frequency_range[0], self.frequency_range[1], self.samples
+        )
+
+    def configurations(self) -> Iterable[CaseConfiguration]:
+        for ordinal, (gap, shift, frequency) in enumerate(
+            product(self.gaps, self.lateral_shifts, self.frequencies())
+        ):
+            yield CaseConfiguration.create(
+                self.slug,
+                (
+                    f"gap={gap:.12g};shift_x={shift:.12g};"
+                    f"frequency={frequency:.12g}"
+                ),
+                ordinal,
+                self.pw,
+                {
+                    "gap_over_a": gap,
+                    "shift_x_over_a": shift,
+                    "frequency_c_over_a": float(frequency),
+                    "polarization": self.polarization.lower(),
+                },
+            )
+
+    def _patterned_layer(self, expansion, shift_x):
+        drawing = Drawing((8, 8), self.slab_epsilon)
+        drawing.disc((shift_x, 0.0), self.hole_radius, self.hole_epsilon)
+        return Layer.analytical(
+            expansion,
+            drawing.islands(),
+            drawing.background,
+            self.slab_thickness,
+        )
+
+    def evaluate(self, configuration: CaseConfiguration) -> CaseResult:
+        gap = float(configuration.parameter("gap_over_a"))
+        shift = float(configuration.parameter("shift_x_over_a"))
+        frequency = float(configuration.parameter("frequency_c_over_a"))
+        expansion = Expansion(configuration.pw)
+        crystal = Crystal.from_expansion(expansion, epsi=1.0, epse=1.0)
+        crystal.add_layer("upper", self._patterned_layer(expansion, 0.0))
+        crystal.add_layer_uniform("gap", 1.0, gap)
+        crystal.add_layer("lower", self._patterned_layer(expansion, shift))
+        crystal.set_device(["upper", "gap", "lower"], fields_mask=False)
+        polarization = str(configuration.parameter("polarization"))
+        te, tm = ((1.0, 0.0) if polarization in ("s", "te") else (0.0, 1.0))
+        crystal.set_source(1.0 / frequency, te=te, tm=tm)
+        crystal.solve()
+        reflection, transmission, absorption = _rta(crystal)
+        return CaseResult(
+            {"R": reflection, "T": transmission, "A": absorption},
+            metadata={
+                "frequency_c_over_a": frequency,
+                "gap_over_a": gap,
+                "shift_x_over_a": shift,
+            },
+            retained_bytes=crystal.Stot.nbytes,
+        )
+
+    def collect(self, evaluations: Sequence[CaseEvaluation]) -> CaseResult:
+        expected = len(self.gaps) * len(self.lateral_shifts) * self.samples
+        if len(evaluations) != expected:
+            raise ValueError(
+                f"expected {expected} spectrum pixels, received {len(evaluations)}"
+            )
+        evaluations = tuple(
+            sorted(evaluations, key=lambda item: item.configuration.ordinal)
+        )
+        shape = (len(self.gaps), len(self.lateral_shifts), self.samples)
+        transmission = np.asarray(
+            [item.result.observables["T"] for item in evaluations]
+        ).reshape(shape)
+        reflection = np.asarray(
+            [item.result.observables["R"] for item in evaluations]
+        ).reshape(shape)
+        absorption = np.asarray(
+            [item.result.observables["A"] for item in evaluations]
+        ).reshape(shape)
+        frequencies = self.frequencies()
+        return CaseResult(
+            {
+                "max_energy_defect": float(np.max(np.abs(absorption))),
+                "maximum_T": float(np.max(transmission)),
+            },
+            series={
+                "frequencies": frequencies,
+                "gaps": np.asarray(self.gaps),
+                "lateral_shifts": np.asarray(self.lateral_shifts),
+                "R": reflection,
+                "T": transmission,
+                "A": absorption,
+            },
+            metadata={
+                "axis_order": ["gap_over_a", "shift_x_over_a", "frequency_c_over_a"],
+                "fixture": "suh_fan_2003/manifest.json",
+                "feature_extraction": (
+                    "none: narrow resonances require adaptive frequency refinement "
+                    "and plane-wave convergence"
+                ),
+                "reference_scope": (
+                    "graphical qualitative trends; no digitized curve bundled"
+                ),
+            },
+        )
+
+
 def case_registry():
     """Return fresh default case instances, keyed by stable public slug."""
 
     cases = (
         ThinFilmCase(),
         BrewsterInterfaceCase(),
+        FabryPerotCavityCase(),
         GuidedModeSpectrumCase(),
         LouTwistMapCase(),
+        DisplacementSensitiveSlabCase(),
     )
     return {case.slug: case for case in cases}
