@@ -8,12 +8,15 @@ class FixtureTests(unittest.TestCase):
         luder = load_manifest("luder_2020/manifest.json")
         lou = load_manifest("lou_2021/manifest.json")
         fan = load_manifest("suh_fan_2003/manifest.json")
+        lalanne = load_manifest("lalanne_morris_1996/manifest.json")
         self.assertIn("doi", luder["source"])
         self.assertIn("uncertainty", luder)
         self.assertIsNone(luder["data_file"])
         self.assertEqual(lou["observable"], "total far-field transmitted power for incident RCP")
         self.assertEqual(fan["geometry"]["hole_radius_over_a"], 0.4)
         self.assertIsNone(fan["data_file"])
+        self.assertAlmostEqual(lalanne["reference_transmitted_zero_order"], 0.7028)
+        self.assertEqual(lalanne["geometry"]["ridge_refractive_index"]["imaginary"], -4.41)
 
     def test_every_registered_case_cites_a_doi_or_arxiv_source(self):
         for case in case_registry().values():

@@ -3,9 +3,12 @@ import unittest
 import numpy as np
 
 from khepri.validation import (
+    AbsorbingFilmCase,
+    AbsorbingInterfaceCase,
     BrewsterInterfaceCase,
     DisplacementSensitiveSlabCase,
     FabryPerotCavityCase,
+    LalanneChromeGratingCase,
     LouTwistMapCase,
     SequentialRunner,
     ThinFilmCase,
@@ -14,6 +17,54 @@ from khepri.validation import (
 
 
 class ScientificCaseTests(unittest.TestCase):
+    def test_absorbing_film_matches_complex_characteristic_matrix(self):
+        case = AbsorbingFilmCase(
+            wavelengths=(0.83, 1.17),
+            thicknesses=(0.0, 0.11, 0.43),
+            angles_radians=(0.0, 0.47),
+            polarizations=("s", "p"),
+        )
+        run = ThreadRunner(2).run(case)
+        aggregate = case.collect(run.evaluations)
+        for evaluation in run.evaluations:
+            reference = case.reference(evaluation.configuration)
+            self.assertLess(case.error(evaluation, reference), 3e-10)
+        self.assertGreater(aggregate.observables["maximum_A"], 0.1)
+        self.assertGreaterEqual(aggregate.observables["minimum_A"], -2e-12)
+        self.assertLessEqual(aggregate.observables["maximum_R_plus_T"], 1 + 2e-12)
+        np.testing.assert_allclose(
+            aggregate.series["R"][:, 0, :, 0],
+            aggregate.series["R"][:, 1, :, 0],
+            atol=2e-14,
+        )
+        np.testing.assert_allclose(aggregate.series["A"][..., 0], 0.0, atol=2e-14)
+
+    @unittest.expectedFailure
+    def test_absorbing_halfspace_flux_matches_complex_fresnel(self):
+        """Known gap: the exterior eigenspace assumes a lossless half-space."""
+
+        case = AbsorbingInterfaceCase()
+        run = ThreadRunner(2).run(case)
+        for evaluation in run.evaluations:
+            self.assertLess(case.error(evaluation, case.reference(evaluation.configuration)), 3e-10)
+
+    def test_lalanne_chrome_case_records_published_geometry_and_absorption(self):
+        case = LalanneChromeGratingCase(pw_values=(5, 9))
+        configurations = tuple(case.configurations())
+        self.assertEqual([item.pw for item in configurations], [(5, 1), (9, 1)])
+        self.assertAlmostEqual(case.literature_transmission, 0.7028)
+        aggregate = case.collect(ThreadRunner(2).run(case).evaluations)
+        self.assertGreaterEqual(aggregate.observables["minimum_A"], -2e-10)
+
+    @unittest.expectedFailure
+    def test_lalanne_chrome_tm_transmission_reaches_published_value(self):
+        """Known gap: the main branch lacks the required TM factorization."""
+
+        case = LalanneChromeGratingCase(pw_values=(41,))
+        aggregate = case.collect(SequentialRunner().run(case).evaluations)
+        reference = case.aggregate_reference(aggregate)
+        self.assertLess(case.aggregate_error(aggregate, reference), 0.03)
+
     def test_thin_film_matches_airy_for_s_and_p_in_parallel(self):
         case = ThinFilmCase(
             angles_radians=(0.0, 0.31),

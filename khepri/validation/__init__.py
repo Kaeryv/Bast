@@ -4,13 +4,17 @@ from .analytics import (
     brewster_angle,
     fresnel_interface,
     multilayer_stack,
+    multilayer_stack_oblique,
     single_film,
 )
 from .cases import (
+    AbsorbingFilmCase,
+    AbsorbingInterfaceCase,
     BrewsterInterfaceCase,
     DisplacementSensitiveSlabCase,
     FabryPerotCavityCase,
     GuidedModeSpectrumCase,
+    LalanneChromeGratingCase,
     LouTwistMapCase,
     ThinFilmCase,
     case_registry,
@@ -31,6 +35,8 @@ from .runners import SequentialRunner, ThreadRunner
 
 
 __all__ = [
+    "AbsorbingFilmCase",
+    "AbsorbingInterfaceCase",
     "BrewsterInterfaceCase",
     "CaseConfiguration",
     "CaseEvaluation",
@@ -40,6 +46,7 @@ __all__ = [
     "FIXTURE_ROOT",
     "FabryPerotCavityCase",
     "GuidedModeSpectrumCase",
+    "LalanneChromeGratingCase",
     "LiteratureReference",
     "LouTwistMapCase",
     "ReferenceResult",
@@ -53,6 +60,7 @@ __all__ = [
     "fresnel_interface",
     "load_manifest",
     "multilayer_stack",
+    "multilayer_stack_oblique",
     "normalize_pw",
     "single_film",
     "write_json_run",

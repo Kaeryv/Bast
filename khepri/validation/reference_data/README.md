@@ -18,6 +18,9 @@ truth.
 
 Current primary-source manifests:
 
+- `lalanne_morris_1996`: DOI `10.1364/JOSAA.13.000779`, with geometry
+  provenance cross-checked against DOI `10.1364/JOSAA.12.001087` and
+  `10.1109/JLT.2009.2027343`;
 - `luder_2020`: DOI `10.1007/s11082-020-02296-7`;
 - `lou_2021`: DOI `10.1103/PhysRevLett.126.136101`;
 - `suh_fan_2003`: DOI `10.1063/1.1563739`.

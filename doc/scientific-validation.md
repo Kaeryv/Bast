@@ -130,8 +130,11 @@ case = DisplacementSensitiveSlabCase.published_lateral_study(
 | Slug | Physical gate | Reference |
 |---|---|---|
 | `thin-film` | Fresnel interfaces, phase propagation, oblique TE/TM flux | Macleod, *Thin-Film Optical Filters*, DOI [10.1201/b21960](https://doi.org/10.1201/b21960) |
+| `absorbing-film` | Complex epsilon, passive branch, oblique TE/TM R/T/A, zero-thickness limit | Born & Wolf, DOI [10.1017/CBO9781139644187](https://doi.org/10.1017/CBO9781139644187); Macleod, DOI [10.1201/b21960](https://doi.org/10.1201/b21960) |
+| `absorbing-interface` | Complex-index Fresnel reflection and Poynting flux into a lossy half-space | Born & Wolf, DOI [10.1017/CBO9781139644187](https://doi.org/10.1017/CBO9781139644187) |
 | `brewster` | TM Brewster zero and exterior flux normalization | Born & Wolf, *Principles of Optics*, DOI [10.1017/CBO9781139644187](https://doi.org/10.1017/CBO9781139644187) |
 | `fabry-perot` | Repeated layers, Redheffer ordering, cavity phase, multiple reflections | Macleod, DOI [10.1201/b21960](https://doi.org/10.1201/b21960) |
+| `lalanne-chrome-grating` | Patterned complex epsilon and TM Fourier-factorization convergence | Peng & Morris, DOI [10.1364/JOSAA.12.001087](https://doi.org/10.1364/JOSAA.12.001087); Lalanne & Morris, DOI [10.1364/JOSAA.13.000779](https://doi.org/10.1364/JOSAA.13.000779) |
 | `luder-guided-mode` | Guided-mode spectral feature | Lüder et al. (2020), DOI [10.1007/s11082-020-02296-7](https://doi.org/10.1007/s11082-020-02296-7) |
 | `lou-twist-map` | Extended-basis twisted bilayer map | Lou et al. (2021), DOI [10.1103/PhysRevLett.126.136101](https://doi.org/10.1103/PhysRevLett.126.136101) |
 | `fan-displacement-sensitive-slabs` | Longitudinal and lateral displacement of coupled guided-resonant slabs | Suh et al. (2003), DOI [10.1063/1.1563739](https://doi.org/10.1063/1.1563739) |
@@ -149,6 +152,42 @@ Consequently the fast tests enforce execution order, thread safety, energy
 conservation, and data shape. A literature reproduction must additionally
 show plane-wave/frequency convergence before comparing resonance motion or
 splitting against Figures 2 and 4.
+
+## Absorbing-media conventions and open gates
+
+Khepri assumes `exp(+i omega t)`. A passive material therefore has a negative
+imaginary permittivity and refractive index, for example:
+
+```python
+index = 1.7 - 0.18j
+epsilon = index**2
+```
+
+`AbsorbingFilmCase` is the hard, passing textbook gate. Its incident and exit
+half-spaces are lossless, so `A = 1 - R - T` is unambiguously the power
+absorbed in the finite film. It checks the full R/T/A triplet against an
+independent oblique characteristic matrix, for both polarizations and several
+thicknesses, including the zero-thickness limit.
+
+Two cases deliberately expose unresolved scientific gaps rather than becoming
+weak regressions:
+
+- `absorbing-interface` currently fails the complex Fresnel reflectance and
+  transmitted-flux checks because the exterior eigenspace assumes a lossless
+  exit medium. Its scientific test is an expected failure until lossy
+  half-spaces are implemented explicitly.
+- `lalanne-chrome-grating` implements the classic normal-incidence chrome
+  lamellar grating: period 0.25 µm, depth 0.20 µm, air-groove fraction 0.30,
+  `n_Cr = 3.18 - 4.41j` at 0.55 µm, and a glass substrate of index 1.5. The
+  literature modal reference is `T0 = 0.7028`. The current analytical
+  patterned-layer formulation does not reach this value for TM polarization;
+  this is the acceptance test for the planned normal-vector/Li Fourier
+  factorization work. It is recorded as an expected failure, not redefined as
+  self-convergence.
+
+An unexpected success of either expected-failure test fails `unittest`, which
+forces the marker and this documentation to be reviewed when the solver is
+fixed.
 
 ## Adding a case
 
@@ -196,6 +235,9 @@ Run a registered case with:
 
 ```bash
 python scripts/validation_run.py thin-film --threads 1 --output artifacts/validation
+python scripts/validation_run.py absorbing-film --threads 4 --output artifacts/validation
+python scripts/validation_run.py absorbing-interface --threads 2 --output artifacts/validation
 python scripts/validation_run.py fabry-perot --threads 4 --output artifacts/validation
+python scripts/validation_run.py lalanne-chrome-grating --threads 4 --output artifacts/validation
 python scripts/validation_run.py lou-twist-map --threads 4 --output artifacts/validation
 ```

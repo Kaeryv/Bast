@@ -16,6 +16,7 @@ from .analytics import (
     brewster_angle,
     fresnel_interface,
     multilayer_stack,
+    multilayer_stack_oblique,
     single_film,
 )
 from .fixtures import load_manifest
@@ -141,6 +142,438 @@ class ThinFilmCase(ValidationCase):
                 "A": np.asarray([item.result.observables["A"] for item in evaluations]),
             },
             metadata={"configuration_count": len(evaluations)},
+        )
+
+
+@dataclass(frozen=True)
+class AbsorbingFilmCase(ValidationCase):
+    """Passive complex-epsilon film with a characteristic-matrix oracle."""
+
+    pw: PlaneWaves = (1, 1)
+    wavelengths: Tuple[float, ...] = (0.8, 1.1)
+    thicknesses: Tuple[float, ...] = (0.0, 0.08, 0.23, 0.75)
+    angles_radians: Tuple[float, ...] = (0.0, 0.47)
+    polarizations: Tuple[str, ...] = ("s", "p")
+    epsilon_incident: complex = 1.0
+    epsilon_film: complex = (1.7 - 0.18j) ** 2
+    epsilon_substrate: complex = 2.25
+
+    slug = "absorbing-film"
+    title = "Absorbing complex-permittivity film"
+    description = (
+        "A passive uniform film is checked against an independent oblique "
+        "characteristic matrix for R, T, and volume absorption A."
+    )
+    tags = ("fast", "analytic", "integration", "absorption", "complex-epsilon")
+    references = (
+        LiteratureReference(
+            "M. Born and E. Wolf, Principles of Optics, 7th ed.",
+            "https://doi.org/10.1017/CBO9781139644187",
+            "Complex refractive index, Fresnel coefficients, and absorption.",
+        ),
+        LiteratureReference(
+            "H. A. Macleod, Thin-Film Optical Filters, 4th ed.",
+            "https://doi.org/10.1201/b21960",
+            "Characteristic matrices for absorbing thin films.",
+        ),
+    )
+
+    def configurations(self) -> Iterable[CaseConfiguration]:
+        values = product(
+            self.polarizations,
+            self.wavelengths,
+            self.angles_radians,
+            self.thicknesses,
+        )
+        for ordinal, (polarization, wavelength, theta, thickness) in enumerate(values):
+            yield CaseConfiguration.create(
+                self.slug,
+                (
+                    f"pol={polarization.lower()};wavelength={wavelength:.12g};"
+                    f"theta={theta:.12g};thickness={thickness:.12g}"
+                ),
+                ordinal,
+                self.pw,
+                {
+                    "polarization": polarization.lower(),
+                    "wavelength": wavelength,
+                    "theta_radians": theta,
+                    "thickness": thickness,
+                    "epsilon_film": self.epsilon_film,
+                },
+            )
+
+    def evaluate(self, configuration: CaseConfiguration) -> CaseResult:
+        wavelength = float(configuration.parameter("wavelength"))
+        theta = float(configuration.parameter("theta_radians"))
+        thickness = float(configuration.parameter("thickness"))
+        polarization = str(configuration.parameter("polarization"))
+        crystal = Crystal(
+            configuration.pw,
+            lattice_pitch=0.37,
+            epsi=self.epsilon_incident,
+            epse=self.epsilon_substrate,
+        )
+        crystal.add_layer_uniform("absorber", self.epsilon_film, thickness)
+        crystal.set_device(["absorber"], fields_mask=False)
+        te, tm = ((1.0, 0.0) if polarization in ("s", "te") else (0.0, 1.0))
+        crystal.set_source(
+            wavelength,
+            te=te,
+            tm=tm,
+            theta=np.degrees(theta),
+            phi=0.0,
+        )
+        crystal.solve()
+        reflection, transmission, absorption = _rta(crystal)
+        return CaseResult(
+            {"R": reflection, "T": transmission, "A": absorption},
+            metadata={
+                "epsilon_convention": "passive Im(epsilon) < 0 for exp(+i omega t)",
+                "epsilon_film": self.epsilon_film,
+                "thickness": thickness,
+            },
+            retained_bytes=crystal.Stot.nbytes,
+        )
+
+    def reference(self, configuration: CaseConfiguration) -> ReferenceResult:
+        values = multilayer_stack_oblique(
+            self.epsilon_incident,
+            self.epsilon_substrate,
+            ((self.epsilon_film, float(configuration.parameter("thickness"))),),
+            float(configuration.parameter("wavelength")),
+            float(configuration.parameter("theta_radians")),
+            str(configuration.parameter("polarization")),
+        )
+        return ReferenceResult(values, "analytical", self.references[1])
+
+    def collect(self, evaluations: Sequence[CaseEvaluation]) -> CaseResult:
+        expected = (
+            len(self.polarizations)
+            * len(self.wavelengths)
+            * len(self.angles_radians)
+            * len(self.thicknesses)
+        )
+        if len(evaluations) != expected:
+            raise ValueError(
+                f"expected {expected} absorbing-film points, received {len(evaluations)}"
+            )
+        evaluations = tuple(
+            sorted(evaluations, key=lambda item: item.configuration.ordinal)
+        )
+        shape = (
+            len(self.polarizations),
+            len(self.wavelengths),
+            len(self.angles_radians),
+            len(self.thicknesses),
+        )
+        series = {
+            name: np.asarray(
+                [item.result.observables[name] for item in evaluations], dtype=float
+            ).reshape(shape)
+            for name in ("R", "T", "A")
+        }
+        return CaseResult(
+            {
+                "minimum_A": float(np.min(series["A"])),
+                "maximum_A": float(np.max(series["A"])),
+                "maximum_R_plus_T": float(np.max(series["R"] + series["T"])),
+            },
+            series=series,
+            metadata={
+                "axis_order": ["polarization", "wavelength", "angle", "thickness"],
+                "polarizations": list(self.polarizations),
+                "wavelengths": list(self.wavelengths),
+                "angles_radians": list(self.angles_radians),
+                "thicknesses": list(self.thicknesses),
+            },
+        )
+
+
+@dataclass(frozen=True)
+class AbsorbingInterfaceCase(ValidationCase):
+    """Lossy half-space Fresnel problem, including transmitted flux."""
+
+    pw: PlaneWaves = (1, 1)
+    wavelength: float = 1.0
+    angles_radians: Tuple[float, ...] = (0.0, 0.47, 0.91)
+    polarizations: Tuple[str, ...] = ("s", "p")
+    epsilon_incident: complex = 1.0
+    epsilon_transmitted: complex = (1.7 - 0.20j) ** 2
+
+    slug = "absorbing-interface"
+    title = "Fresnel interface to an absorbing half-space"
+    description = (
+        "Complex-index Fresnel reflection and the real normal Poynting flux "
+        "entering a passive semi-infinite medium."
+    )
+    tags = (
+        "fast",
+        "analytic",
+        "integration",
+        "absorption",
+        "complex-epsilon",
+        "half-space",
+    )
+    references = (
+        LiteratureReference(
+            "M. Born and E. Wolf, Principles of Optics, 7th ed.",
+            "https://doi.org/10.1017/CBO9781139644187",
+            "Fresnel coefficients for a complex transmitted refractive index.",
+        ),
+    )
+
+    def configurations(self) -> Iterable[CaseConfiguration]:
+        for ordinal, (polarization, theta) in enumerate(
+            product(self.polarizations, self.angles_radians)
+        ):
+            yield CaseConfiguration.create(
+                self.slug,
+                f"pol={polarization.lower()};theta={theta:.12g}",
+                ordinal,
+                self.pw,
+                {
+                    "polarization": polarization.lower(),
+                    "theta_radians": theta,
+                    "wavelength": self.wavelength,
+                },
+            )
+
+    def evaluate(self, configuration: CaseConfiguration) -> CaseResult:
+        polarization = str(configuration.parameter("polarization"))
+        theta = float(configuration.parameter("theta_radians"))
+        crystal = Crystal(
+            configuration.pw,
+            lattice_pitch=0.37,
+            epsi=self.epsilon_incident,
+            epse=self.epsilon_transmitted,
+        )
+        crystal.set_device([])
+        te, tm = ((1.0, 0.0) if polarization in ("s", "te") else (0.0, 1.0))
+        crystal.set_source(
+            self.wavelength,
+            te=te,
+            tm=tm,
+            theta=np.degrees(theta),
+            phi=0.0,
+        )
+        crystal.solve()
+        reflection, transmission, absorption = _rta(crystal)
+        return CaseResult(
+            {"R": reflection, "T_interface": transmission, "balance": absorption},
+            metadata={
+                "balance_definition": "1 - R - T_interface; expected zero",
+                "epsilon_convention": "passive Im(epsilon) < 0 for exp(+i omega t)",
+            },
+            retained_bytes=crystal.Stot.nbytes,
+        )
+
+    def reference(self, configuration: CaseConfiguration) -> ReferenceResult:
+        values = fresnel_interface(
+            self.epsilon_incident,
+            self.epsilon_transmitted,
+            float(configuration.parameter("theta_radians")),
+            str(configuration.parameter("polarization")),
+        )
+        return ReferenceResult(
+            {
+                "R": values["R"],
+                "T_interface": values["T"],
+                "balance": 0.0,
+            },
+            "analytical",
+            self.references[0],
+        )
+
+    def collect(self, evaluations: Sequence[CaseEvaluation]) -> CaseResult:
+        evaluations = tuple(
+            sorted(evaluations, key=lambda item: item.configuration.ordinal)
+        )
+        return CaseResult(
+            {
+                "maximum_absolute_balance": float(
+                    max(abs(item.result.observables["balance"]) for item in evaluations)
+                )
+            },
+            series={
+                name: np.asarray(
+                    [item.result.observables[name] for item in evaluations], dtype=float
+                ).reshape(len(self.polarizations), len(self.angles_radians))
+                for name in ("R", "T_interface", "balance")
+            },
+            metadata={"axis_order": ["polarization", "angle"]},
+        )
+
+
+@dataclass(frozen=True)
+class LalanneChromeGratingCase(ValidationCase):
+    """Classic absorbing chrome lamellar-grating convergence benchmark."""
+
+    pw_values: Tuple[int, ...] = (5, 9, 15, 25, 41)
+    period_um: float = 0.25
+    wavelength_um: float = 0.55
+    depth_um: float = 0.20
+    air_groove_fraction: float = 0.30
+    chrome_index: complex = 3.18 - 4.41j
+    substrate_index: float = 1.5
+
+    slug = "lalanne-chrome-grating"
+    title = "Lalanne–Morris absorbing chrome lamellar grating"
+    description = (
+        "TM zeroth-order transmission convergence for the classic patterned "
+        "chrome-on-glass RCWA benchmark."
+    )
+    tags = (
+        "slow",
+        "literature",
+        "patterned",
+        "absorption",
+        "complex-epsilon",
+        "fourier-factorization",
+        "convergence",
+    )
+    references = (
+        LiteratureReference(
+            (
+                "S. Peng and G. M. Morris, J. Opt. Soc. Am. A 12, "
+                "1087–1096 (1995)"
+            ),
+            "https://doi.org/10.1364/JOSAA.12.001087",
+            "Original chrome lamellar-grating benchmark geometry.",
+        ),
+        LiteratureReference(
+            (
+                "P. Lalanne and G. M. Morris, J. Opt. Soc. Am. A 13, "
+                "779–784 (1996)"
+            ),
+            "https://doi.org/10.1364/JOSAA.13.000779",
+            "Figure 2 and the converged modal-method T0=70.28% value.",
+        ),
+        LiteratureReference(
+            (
+                "Y.-P. Chiou, W.-L. Yeh, and N.-Y. Shih, J. Lightwave "
+                "Technol. 27, 5151–5159 (2009)"
+            ),
+            "https://doi.org/10.1109/JLT.2009.2027343",
+            "Restates period, depth, duty cycle, wavelength, and materials.",
+        ),
+    )
+
+    @property
+    def manifest(self):
+        return load_manifest("lalanne_morris_1996/manifest.json")
+
+    @property
+    def literature_transmission(self) -> float:
+        return float(self.manifest["reference_transmitted_zero_order"])
+
+    def configurations(self) -> Iterable[CaseConfiguration]:
+        for ordinal, harmonics in enumerate(self.pw_values):
+            pw = normalize_pw((harmonics, 1))
+            yield CaseConfiguration.create(
+                self.slug,
+                f"pw={harmonics}x1",
+                ordinal,
+                pw,
+                {
+                    "harmonics_x": harmonics,
+                    "wavelength_over_period": self.wavelength_um / self.period_um,
+                    "depth_over_period": self.depth_um / self.period_um,
+                    "polarization": "tm",
+                },
+            )
+
+    def evaluate(self, configuration: CaseConfiguration) -> CaseResult:
+        chrome_epsilon = self.chrome_index**2
+        pattern = Drawing((8, 8), chrome_epsilon)
+        pattern.rectangle(
+            (0.0, 0.0),
+            (self.air_groove_fraction, 1.0),
+            1.0,
+        )
+        crystal = Crystal(
+            configuration.pw,
+            lattice_pitch=1.0,
+            epsi=1.0,
+            epse=self.substrate_index**2,
+        )
+        crystal.add_layer_analytical(
+            "chrome-grating",
+            pattern.islands(),
+            pattern.background,
+            self.depth_um / self.period_um,
+        )
+        crystal.set_device(["chrome-grating"], fields_mask=False)
+        crystal.set_source(
+            self.wavelength_um / self.period_um,
+            te=0.0,
+            tm=1.0,
+            theta=1e-7,
+            phi=0.0,
+        )
+        crystal.solve()
+        reflection, transmission, absorption = _rta(crystal)
+        return CaseResult(
+            {"R": reflection, "T0": transmission, "A": absorption},
+            metadata={
+                "normal_incidence_regularization_degrees": 1e-7,
+                "epsilon_chrome": chrome_epsilon,
+                "only_zero_order_propagates": True,
+                "factorization": "current analytical patterned-layer formulation",
+            },
+            retained_bytes=crystal.Stot.nbytes,
+        )
+
+    def collect(self, evaluations: Sequence[CaseEvaluation]) -> CaseResult:
+        if len(evaluations) != len(self.pw_values):
+            raise ValueError(
+                f"expected {len(self.pw_values)} convergence points, "
+                f"received {len(evaluations)}"
+            )
+        evaluations = tuple(
+            sorted(evaluations, key=lambda item: item.configuration.ordinal)
+        )
+        harmonics = np.asarray(
+            [item.configuration.parameter("harmonics_x") for item in evaluations],
+            dtype=int,
+        )
+        transmission = np.asarray(
+            [item.result.observables["T0"] for item in evaluations], dtype=float
+        )
+        reflection = np.asarray(
+            [item.result.observables["R"] for item in evaluations], dtype=float
+        )
+        absorption = np.asarray(
+            [item.result.observables["A"] for item in evaluations], dtype=float
+        )
+        return CaseResult(
+            {
+                "highest_pw_T0": float(transmission[-1]),
+                "literature_T0": self.literature_transmission,
+                "highest_pw_absolute_error": float(
+                    abs(transmission[-1] - self.literature_transmission)
+                ),
+                "minimum_A": float(np.min(absorption)),
+            },
+            series={
+                "harmonics_x": harmonics,
+                "R": reflection,
+                "T0": transmission,
+                "A": absorption,
+            },
+            metadata={
+                "fixture": "lalanne_morris_1996/manifest.json",
+                "reference_scope": "asymptotic converged zeroth-order transmission",
+            },
+        )
+
+    def aggregate_reference(self, aggregate: CaseResult) -> ReferenceResult:
+        return ReferenceResult(
+            {"highest_pw_T0": self.literature_transmission},
+            "literature-modal-scalar",
+            self.references[1],
+            fixture="lalanne_morris_1996/manifest.json",
+            uncertainty=str(self.manifest["uncertainty"]),
         )
 
 
@@ -739,9 +1172,12 @@ def case_registry():
 
     cases = (
         ThinFilmCase(),
+        AbsorbingFilmCase(),
+        AbsorbingInterfaceCase(),
         BrewsterInterfaceCase(),
         FabryPerotCavityCase(),
         GuidedModeSpectrumCase(),
+        LalanneChromeGratingCase(),
         LouTwistMapCase(),
         DisplacementSensitiveSlabCase(),
     )

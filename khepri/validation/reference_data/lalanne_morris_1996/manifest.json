@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "case": "lalanne-chrome-grating",
+  "sources": [
+    {
+      "citation": "S. Peng and G. M. Morris, Journal of the Optical Society of America A 12, 1087-1096 (1995)",
+      "doi": "10.1364/JOSAA.12.001087",
+      "role": "original benchmark geometry"
+    },
+    {
+      "citation": "P. Lalanne and G. M. Morris, Journal of the Optical Society of America A 13, 779-784 (1996)",
+      "doi": "10.1364/JOSAA.13.000779",
+      "figure": "Figure 2",
+      "role": "factorization convergence and converged modal-method value"
+    },
+    {
+      "citation": "Y.-P. Chiou, W.-L. Yeh, and N.-Y. Shih, Journal of Lightwave Technology 27, 5151-5159 (2009)",
+      "doi": "10.1109/JLT.2009.2027343",
+      "figure": "Figure 3",
+      "role": "independent restatement of numerical geometry"
+    }
+  ],
+  "kind": "published-geometry-and-converged-scalar",
+  "geometry": {
+    "dimension": "one-dimensional lamellar grating, invariant along grooves",
+    "period_um": 0.25,
+    "depth_um": 0.20,
+    "air_groove_fraction": 0.30,
+    "chrome_ridge_fraction": 0.70,
+    "groove_material": "air",
+    "ridge_refractive_index": {
+      "real": 3.18,
+      "imaginary": -4.41,
+      "convention": "exp(+i omega t)"
+    },
+    "incident_medium_refractive_index": 1.0,
+    "substrate_refractive_index": 1.5
+  },
+  "excitation": {
+    "wavelength_um": 0.55,
+    "incidence": "normal",
+    "polarization": "TM (magnetic field parallel to grooves)"
+  },
+  "observable": "transmitted zeroth-order diffraction efficiency",
+  "reference_transmitted_zero_order": 0.7028,
+  "uncertainty": "The paper reports 70.28% from a 90-mode modal calculation and treats it as the exact diffraction efficiency; no raw numerical trace is available.",
+  "data_file": null,
+  "notes": [
+    "The period, depth, and duty-cycle text is cross-checked against Chiou et al. (2009).",
+    "Only the zeroth exterior order propagates for this geometry, so total transmitted power equals T0.",
+    "This is a Fourier-factorization acceptance benchmark, not a frozen Khepri fixture."
+  ]
+}
