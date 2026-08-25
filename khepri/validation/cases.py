@@ -451,6 +451,7 @@ class LouTwistMapCase(ValidationCase):
     twists_degrees: Tuple[float, ...] = (5.0, 15.0)
     pw: PlaneWaves = (1, 1)
     polarization: str = "rcp"
+    backend: str = "dense"
 
     slug = "lou-twist-map"
     title = "Lou twisted-bilayer R/T map"
@@ -478,6 +479,7 @@ class LouTwistMapCase(ValidationCase):
                     "frequency_c_over_a": frequency,
                     "twist_degrees": twist,
                     "polarization": self.polarization.lower(),
+                    "backend": self.backend,
                 },
             )
 
@@ -518,16 +520,23 @@ class LouTwistMapCase(ValidationCase):
         crystal.set_device(["upper", "gap", "lower"], fields_mask=False)
         te, tm = self._polarization(str(configuration.parameter("polarization")))
         crystal.set_source(1.0 / frequency, te=te, tm=tm)
-        crystal.solve()
+        crystal.solve(backend=str(configuration.parameter("backend")))
         reflection, transmission, absorption = _rta(crystal)
+        actual_backend = crystal.solve_diagnostics["backend"]
+        retained_bytes = (
+            crystal.solve_diagnostics["retained_bytes"]
+            if actual_backend == "operator"
+            else crystal.Stot.nbytes
+        )
         return CaseResult(
             {"R": reflection, "T": transmission, "A": absorption},
             metadata={
                 "frequency_c_over_a": frequency,
                 "twist_degrees": twist,
                 "extended_harmonics": int(np.prod(extended.pw)),
+                "backend": actual_backend,
             },
-            retained_bytes=crystal.Stot.nbytes,
+            retained_bytes=retained_bytes,
         )
 
     def collect(self, evaluations: Sequence[CaseEvaluation]) -> CaseResult:

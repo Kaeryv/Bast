@@ -33,6 +33,17 @@ RCWA Implementation fully in python!
 
 The code enables the use of extended RCWA, allowing for twisted bilayer systems.
 
+For source-specific R/T/A calculations, select the memory-efficient backend
+with `Crystal.solve(backend="operator")`. It works with ordinary and twisted
+stacks while avoiding dense partial and total stack matrices. Historical
+`Crystal.solve()` behavior remains dense; `backend="auto"` opts into the
+operator path for compatible twisted stacks when no internal fields are marked.
+
+The operator result supports total and per-diffraction-order R/T. It does not
+pretend to contain the complete S matrix or internal fields: accessing
+`Crystal.S`, `Crystal.Stot`, or requesting fields raises
+`OperatorCapabilityError` with instructions to re-run using `backend="dense"`.
+
 ![](examples/figures/twist_xz.png)
 
 

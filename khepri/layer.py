@@ -15,6 +15,12 @@ import numpy as np
 
 from typing import Tuple
 
+from .operators import (
+    DenseScatteringOperator,
+    HarmonicScatteringOperator,
+    OperatorCapabilityError,
+)
+
 
 class Formulation(IntEnum):
     UNIFORM = 0
@@ -62,7 +68,6 @@ def stack_layers(pw, layers, mask):
 
 def stack_total(pw, layers):
     """Compose a stack while retaining only its rolling total S matrix."""
-
     total = scattering_identity(pw, block=True)
     for layer in layers:
         total = redheffer_product(total, layer.S)
@@ -78,9 +83,83 @@ class Layer:
         self.V = None
         self.L = None
 
-        self.S = None
+        self._S = None
+        self.operator = None
+        self.operator_solved = False
 
         self.fields = False
+
+    @property
+    def S(self):
+        if self._S is None and self.operator_solved:
+            raise OperatorCapabilityError(
+                "a dense per-layer scattering matrix",
+                "Use the operator object's explicit to_dense() method before it "
+                "is released, or solve the containing Crystal with "
+                "backend='dense'.",
+            )
+        return self._S
+
+    @S.setter
+    def S(self, value):
+        self._S = value
+
+    @property
+    def supports_operator(self):
+        return self.formulation in (
+            Formulation.HALF_SPACE_INC,
+            Formulation.HALF_SPACE_TRN,
+        ) or not self.fields
+
+    def solve_operator(self, k_parallel, wavelength):
+        """Return this layer through the most compact available operator.
+
+        Uniform media and half spaces are represented as independent harmonic
+        blocks. Patterned ordinary layers retain their usual dense per-layer
+        RCWA matrix, but can still participate in the source-specific operator
+        network without constructing dense partial or total stack matrices.
+        """
+        if not self.supports_operator:
+            raise OperatorCapabilityError(
+                "internal fields",
+                "Disable this layer in set_device(..., fields_mask=...) or "
+                "solve the containing Crystal with backend='dense'.",
+            )
+        if self.formulation in (Formulation.FFT, Formulation.ANALYTICAL):
+            self.solve(k_parallel, wavelength)
+            scattering = self._S
+            self._S = None
+            self.operator = DenseScatteringOperator(scattering)
+            self.operator_solved = True
+            return self.operator
+
+        Kx, Ky, _ = self.expansion.k_vectors(k_parallel, wavelength)
+        k0 = 2 * np.pi / wavelength
+        harmonic_scattering = np.empty(
+            (len(Kx), 2, 2, 2, 2), dtype=np.complex128
+        )
+        for harmonic, (kx, ky) in enumerate(zip(Kx, Ky)):
+            kx = np.asarray([kx])
+            ky = np.asarray([ky])
+            W0, V0 = free_space_eigenmodes(kx, ky)
+            if self.formulation == Formulation.UNIFORM:
+                W, V, eigenvalues = solve_uniform_layer(kx, ky, self.epsilon)
+                scattering = build_scatmat(
+                    W, V, W0, V0, eigenvalues, self.depth, k0
+                )
+            elif self.formulation == Formulation.HALF_SPACE_INC:
+                scattering, _, _, _ = scattering_reflection(
+                    kx, ky, W0, V0, self.epsilon
+                )
+            else:
+                scattering, _, _, _ = scattering_transmission(
+                    kx, ky, W0, V0, self.epsilon
+                )
+            harmonic_scattering[harmonic] = scattering
+        self._S = None
+        self.operator = HarmonicScatteringOperator(harmonic_scattering)
+        self.operator_solved = True
+        return self.operator
     
     @classmethod
     def pixmap_or_uniform(cls, expansion, pixmap, depth):
@@ -158,6 +237,8 @@ class Layer:
         k_parallel: incident transverse wavevector.
         wavelength: excitation wavelength
         """
+        self.operator = None
+        self.operator_solved = False
         Kx, Ky, _ = self.expansion.k_vectors(k_parallel, wavelength)
         W0, V0 = free_space_eigenmodes(Kx, Ky)
         k0 = 2 * np.pi / wavelength

@@ -13,6 +13,7 @@ from .crystal import (
 )
 from .expansion import Expansion
 from .draw import Drawing
+from .operators import IterativeConvergenceError, OperatorCapabilityError
 
 import pickle
 def load(path):
